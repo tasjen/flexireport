@@ -1,11 +1,30 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { useEffect, useRef } from "react";
 
 import { toastError } from "./utils";
 
 const IDLE_RESET_MS = 60 * 60 * 1000; // 1 hour unfocused → reset on return
+const CLOSE_RETRY_ATTEMPTS = 3;
+const CLOSE_RETRY_DELAY_MS = 500;
+
+async function closeBrowsersWithRetry() {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < CLOSE_RETRY_ATTEMPTS; attempt++) {
+    try {
+      await invoke("close_browsers");
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < CLOSE_RETRY_ATTEMPTS - 1) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, CLOSE_RETRY_DELAY_MS),
+        );
+      }
+    }
+  }
+  throw lastError;
+}
 
 /**
  * Resets the app "as if restarted" when the window has been unfocused
@@ -38,12 +57,15 @@ export function useResetWhenAway() {
 
         isResetting.current = true;
         // Reload only after teardown settles, so the reloaded frontend's
-        // first get_task_parameters starts against a clean backend. If the
-        // teardown call itself fails, backend state is unknown — relaunch the
-        // whole process, and only if that also fails reload as a best effort.
-        invoke("close_browsers").then(
+        // first get_task_parameters starts against a clean backend. A busy
+        // session leaves backend state untouched, so retry briefly and bail
+        // safely rather than racing a whole-process relaunch.
+        closeBrowsersWithRetry().then(
           () => window.location.reload(),
-          () => relaunch().catch(() => window.location.reload()),
+          (error) => {
+            isResetting.current = false;
+            toastError(error);
+          },
         );
       })
       .then((fn) => {

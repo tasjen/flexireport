@@ -50,8 +50,8 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-// Drain the invoke → reload / relaunch → reload promise chain. Real timers are
-// faked, but microtasks still run; flush a few hops to settle the chain.
+// Drain the invoke → reload / error promise chain. Real timers are faked, but
+// microtasks still run; flush a few hops to settle the chain.
 async function flushMicrotasks() {
   await Promise.resolve();
   await Promise.resolve();
@@ -100,30 +100,58 @@ it("ignores a focus with no preceding blur", async () => {
   expect(reload).not.toHaveBeenCalled();
 });
 
-it("relaunches when close_browsers fails, without reloading", async () => {
-  vi.mocked(invoke).mockRejectedValue(new Error("teardown failed"));
+it("retries a busy browser reset and reloads only after teardown succeeds", async () => {
+  vi.mocked(invoke)
+    .mockRejectedValueOnce(new Error("The headed browser is busy"))
+    .mockResolvedValue(undefined);
   renderHook(() => useResetWhenAway());
   vi.setSystemTime(T0);
   await fire(false);
   vi.setSystemTime(T0 + ONE_HOUR);
   await fire(true);
 
-  expect(invoke).toHaveBeenCalledWith("close_browsers");
-  expect(relaunch).toHaveBeenCalledTimes(1);
+  expect(invoke).toHaveBeenCalledTimes(1);
   expect(reload).not.toHaveBeenCalled();
+
+  await act(async () => {
+    await vi.runAllTimersAsync();
+    await flushMicrotasks();
+  });
+
+  expect(invoke).toHaveBeenCalledTimes(2);
+  expect(reload).toHaveBeenCalledTimes(1);
+  expect(relaunch).not.toHaveBeenCalled();
 });
 
-it("reloads as a last resort when relaunch also fails", async () => {
-  vi.mocked(invoke).mockRejectedValue(new Error("teardown failed"));
-  vi.mocked(relaunch).mockRejectedValue(new Error("relaunch failed"));
+it("bails safely after bounded retries and allows a later reset attempt", async () => {
+  vi.mocked(invoke).mockRejectedValue(new Error("The headed browser is busy"));
   renderHook(() => useResetWhenAway());
   vi.setSystemTime(T0);
   await fire(false);
   vi.setSystemTime(T0 + ONE_HOUR);
   await fire(true);
 
-  expect(relaunch).toHaveBeenCalledTimes(1);
-  expect(reload).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.runAllTimersAsync();
+    await flushMicrotasks();
+  });
+
+  expect(invoke).toHaveBeenCalledTimes(3);
+  expect(relaunch).not.toHaveBeenCalled();
+  expect(reload).not.toHaveBeenCalled();
+
+  vi.setSystemTime(T0 + 2 * ONE_HOUR);
+  await fire(false);
+  vi.setSystemTime(T0 + 3 * ONE_HOUR);
+  await fire(true);
+  await act(async () => {
+    await vi.runAllTimersAsync();
+    await flushMicrotasks();
+  });
+
+  expect(invoke).toHaveBeenCalledTimes(6);
+  expect(relaunch).not.toHaveBeenCalled();
+  expect(reload).not.toHaveBeenCalled();
 });
 
 it("measures away time from the first blur, ignoring a spurious re-blur", async () => {
