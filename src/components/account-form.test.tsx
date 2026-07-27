@@ -31,7 +31,13 @@ async function setJira(init: { status?: number; loginReason?: string } = {}) {
 // a portal error string, and a Promise keeps it in flight (pending-state test).
 type PortalBehavior = "ok" | "fail" | Promise<unknown>;
 
-function setup(opts: { account?: Account; portal?: PortalBehavior } = {}) {
+function setup(
+  opts: {
+    account?: Account;
+    portal?: PortalBehavior;
+    closeError?: string;
+  } = {},
+) {
   const portal = opts.portal ?? "ok";
   const saved: Account[] = [];
   const invoked: string[] = [];
@@ -46,6 +52,9 @@ function setup(opts: { account?: Account; portal?: PortalBehavior } = {}) {
       if (portal === "fail") return Promise.reject("portal login failed");
       if (portal !== "ok") return portal;
       return undefined;
+    }
+    if (cmd === "close_browsers" && opts.closeError) {
+      return Promise.reject(opts.closeError);
     }
     if (cmd === "get_task_parameters") {
       return { dates: [], leaves: [], projects: [] };
@@ -230,6 +239,33 @@ it("tears down browsers and refreshes task parameters on save with an existing a
   await waitFor(() => expect(saved).toHaveLength(1));
   // a previous account was cached, so the member-switch teardown runs...
   expect(invoked).toContain("close_browsers");
+  expect(invoked.indexOf("close_browsers")).toBeLessThan(
+    invoked.indexOf("plugin:store|set"),
+  );
   // ...and invalidating task_parameters refetches through the probe
   await waitFor(() => expect(taskParamCalls()).toBeGreaterThanOrEqual(2));
+});
+
+it("does not save a replacement account while an old browser is busy", async () => {
+  const existingAccount: Account = {
+    phone: "0899999999",
+    email: "old@example.com",
+    api_token: "old-token",
+    portal_url: "https://old.example.com",
+    portal_credential: "old:pass",
+  };
+  const { saved, invoked } = setup({
+    account: existingAccount,
+    closeError:
+      "The headed browser is busy; wait for the current browser action to finish",
+  });
+  await setJira();
+  await renderForm();
+  await fillValidFields();
+
+  await submit();
+  await waitFor(() => expect(invoked).toContain("close_browsers"));
+
+  expect(saved).toEqual([]);
+  expect(invoked).not.toContain("plugin:store|set");
 });

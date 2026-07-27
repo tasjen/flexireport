@@ -91,19 +91,19 @@ export function useSaveAccountMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (account: Account) => {
+      const previous = queryClient.getQueryData(accountOptions().queryKey);
+      // Reserve and close both old browser sessions before changing the
+      // stored credentials. If either session is busy, the backend rejects
+      // without closing either one and this mutation leaves the old account
+      // intact, so stored credentials and authenticated sessions cannot drift.
+      if (previous) {
+        await invoke("close_browsers");
+      }
       await store.set("account", account);
       await store.save();
       return account;
     },
     onSuccess: async (account) => {
-      const previous = queryClient.getQueryData(accountOptions().queryKey);
-      // close both browser sessions before updating the cache: the headless
-      // one must log in again with the new account when setQueryData enables
-      // the task_parameters query, and a lingering headed session would
-      // submit tasks as the previous member
-      if (previous) {
-        await invoke("close_browsers");
-      }
       queryClient.setQueryData(accountOptions().queryKey, account);
       await queryClient.invalidateQueries(taskParametersOptions());
     },

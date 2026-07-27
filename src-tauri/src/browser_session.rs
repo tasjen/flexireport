@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, MutexGuard};
 
 use crate::AppError;
 
@@ -45,13 +45,40 @@ pub(crate) trait BrowserHost {
 /// launch or a hung close can never leave a stale pair behind for the next
 /// caller to reuse.
 pub(crate) struct BrowserSession<H: BrowserHost> {
+    operation: Mutex<()>,
     inner: Mutex<Option<(H::Browser, H::Page)>>,
     host: H,
+}
+
+/// Exclusive access to one browser session for the full duration of a command.
+///
+/// The page reference cannot outlive this guard, so callers cannot accidentally
+/// release the operation lock while Chromium work is still in flight.
+pub(crate) struct BrowserOperation<'a, H: BrowserHost> {
+    session: &'a BrowserSession<H>,
+    _guard: MutexGuard<'a, ()>,
+    page: Option<H::Page>,
+}
+
+impl<H: BrowserHost> BrowserOperation<'_, H> {
+    pub(crate) async fn page(&mut self) -> Result<&H::Page, AppError> {
+        if self.page.is_none() {
+            self.page = Some(self.session.get_page().await?);
+        }
+        Ok(self.page.as_ref().expect("page was initialized above"))
+    }
+
+    /// Closes the session while retaining this operation's exclusive guard.
+    pub(crate) async fn close(&mut self) {
+        self.page = None;
+        self.session.close_inner().await;
+    }
 }
 
 impl<H: BrowserHost> BrowserSession<H> {
     pub(crate) fn new(host: H) -> Self {
         Self {
+            operation: Mutex::new(()),
             inner: Mutex::new(None),
             host,
         }
@@ -61,12 +88,28 @@ impl<H: BrowserHost> BrowserSession<H> {
         &self.host
     }
 
+    /// Starts one browser operation without waiting behind another command.
+    ///
+    /// Headed and headless sessions have separate locks, so only commands that
+    /// would otherwise share the same page reject each other.
+    pub(crate) fn try_operation(&self) -> Result<BrowserOperation<'_, H>, AppError> {
+        let guard = self
+            .operation
+            .try_lock()
+            .map_err(|_| AppError::BrowserBusy(self.host.label()))?;
+        Ok(BrowserOperation {
+            session: self,
+            _guard: guard,
+            page: None,
+        })
+    }
+
     /// Returns a driveable page, reusing the cached session when it still
     /// responds and otherwise replacing it.
     ///
     /// The lock is held across the launch, so concurrent callers produce one
     /// session rather than racing two browsers into the same profile dir.
-    pub(crate) async fn get_page(&self) -> Result<H::Page, AppError> {
+    async fn get_page(&self) -> Result<H::Page, AppError> {
         let mut guard = self.inner.lock().await;
         if let Some((_, page)) = guard.as_ref() {
             if self.host.is_page_alive(page).await {
@@ -90,9 +133,7 @@ impl<H: BrowserHost> BrowserSession<H> {
         Ok(page)
     }
 
-    /// Tears down the session if one is active. Safe to call repeatedly and on
-    /// an empty session.
-    pub(crate) async fn close(&self) {
+    async fn close_inner(&self) {
         let mut guard = self.inner.lock().await;
         let Some((mut browser, page)) = guard.take() else {
             return;
@@ -108,6 +149,15 @@ impl<H: BrowserHost> BrowserSession<H> {
             );
             self.host.kill(&mut browser).await;
         }
+    }
+
+    /// Tears down the session even if an operation is active.
+    ///
+    /// Reserved for application exit, when in-flight work must be interrupted.
+    /// Browser commands and account resets close through `BrowserOperation`
+    /// instead.
+    pub(crate) async fn shutdown(&self) {
+        self.close_inner().await;
     }
 }
 
@@ -147,6 +197,7 @@ pub(crate) mod test_support {
         pub(crate) events: RefCell<Vec<Event>>,
         pub(crate) launches: Cell<usize>,
         pub(crate) page_alive: Cell<bool>,
+        pub(crate) auth_pump_alive: Cell<bool>,
         pub(crate) launch_fails: Cell<bool>,
         pub(crate) close_hangs: Cell<bool>,
         pub(crate) launch_delay: Cell<Duration>,
@@ -157,6 +208,7 @@ pub(crate) mod test_support {
             Self {
                 label,
                 page_alive: Cell::new(true),
+                auth_pump_alive: Cell::new(true),
                 ..Self::default()
             }
         }
@@ -199,7 +251,7 @@ pub(crate) mod test_support {
 
         async fn is_page_alive(&self, page: &FakePage) -> bool {
             self.record(Event::Probed(page.0));
-            self.page_alive.get()
+            self.page_alive.get() && self.auth_pump_alive.get()
         }
 
         async fn close(&self, browser: &mut FakeBrowser, _page: FakePage) {
@@ -217,8 +269,6 @@ pub(crate) mod test_support {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use super::test_support::{fake_session, Event, FakeHost, FakePage};
     use super::{BrowserSession, GRACEFUL_CLOSE_TIMEOUT};
 
@@ -278,6 +328,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_dead_auth_pump_makes_the_cached_session_relaunch() {
+        let session = session();
+        let mut first = session.try_operation().unwrap();
+        first.page().await.unwrap();
+        drop(first);
+
+        session.host().auth_pump_alive.set(false);
+        let mut next = session.try_operation().unwrap();
+        let page = *next.page().await.unwrap();
+
+        assert_eq!(
+            (page, session.host().events()),
+            (
+                FakePage(2),
+                vec![
+                    Event::Launched(1),
+                    Event::Probed(1),
+                    Event::Killed(1),
+                    Event::Launched(2),
+                ]
+            )
+        );
+    }
+
+    #[tokio::test]
     async fn a_replacement_session_is_cached_and_reused_like_any_other() {
         let session = session();
         session.get_page().await.unwrap();
@@ -315,16 +390,31 @@ mod tests {
         );
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn concurrent_page_requests_produce_only_one_session() {
+    #[tokio::test]
+    async fn a_second_operation_is_rejected_until_the_first_one_finishes() {
         let session = session();
-        session.host().launch_delay.set(Duration::from_millis(500));
+        let mut first = session.try_operation().unwrap();
+        let first_page = *first.page().await.unwrap();
 
-        let (first, second) = tokio::join!(session.get_page(), session.get_page());
+        let error = match session.try_operation() {
+            Ok(_) => panic!("a second operation must not share the active page"),
+            Err(error) => error,
+        };
+        drop(first);
+
+        let mut next = session.try_operation().unwrap();
+        let next_page = *next.page().await.unwrap();
 
         assert_eq!(
-            (first.unwrap(), second.unwrap(), session.host().events()),
             (
+                error.to_string(),
+                first_page,
+                next_page,
+                session.host().events()
+            ),
+            (
+                "The headless browser is busy; wait for the current browser action to finish"
+                    .to_string(),
                 FakePage(1),
                 FakePage(1),
                 vec![Event::Launched(1), Event::Probed(1)]
@@ -333,11 +423,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_operation_can_close_its_own_session_without_releasing_exclusivity() {
+        let session = session();
+        let mut operation = session.try_operation().unwrap();
+        operation.page().await.unwrap();
+
+        operation.close().await;
+        assert!(
+            session.try_operation().is_err(),
+            "the operation must remain exclusive until its guard is dropped"
+        );
+        drop(operation);
+
+        let mut next = session.try_operation().unwrap();
+        let page = *next.page().await.unwrap();
+        assert_eq!(
+            (page, session.host().events()),
+            (
+                FakePage(2),
+                vec![
+                    Event::Launched(1),
+                    Event::ClosedGracefully(1),
+                    Event::Launched(2),
+                ]
+            )
+        );
+    }
+
+    #[tokio::test]
     async fn closing_an_empty_session_is_harmless() {
         let session = session();
 
-        session.close().await;
-        session.close().await;
+        session.shutdown().await;
+        session.shutdown().await;
 
         assert_eq!(session.host().events(), vec![]);
     }
@@ -347,7 +465,7 @@ mod tests {
         let session = session();
         session.get_page().await.unwrap();
 
-        session.close().await;
+        session.shutdown().await;
 
         assert_eq!(
             session.host().events(),
@@ -362,7 +480,7 @@ mod tests {
         session.host().close_hangs.set(true);
         let started = tokio::time::Instant::now();
 
-        session.close().await;
+        session.shutdown().await;
 
         assert_eq!(
             (
@@ -381,8 +499,8 @@ mod tests {
         let session = session();
         session.get_page().await.unwrap();
 
-        session.close().await;
-        session.close().await;
+        session.shutdown().await;
+        session.shutdown().await;
 
         assert_eq!(
             session.host().events(),
@@ -395,7 +513,7 @@ mod tests {
         let session = session();
         session.get_page().await.unwrap();
 
-        session.close().await;
+        session.shutdown().await;
         let page = session.get_page().await.unwrap();
 
         // No `Probed` event after the close: the old login's session was gone,
@@ -420,7 +538,7 @@ mod tests {
         headless.get_page().await.unwrap();
         headed.get_page().await.unwrap();
 
-        headless.close().await;
+        headless.shutdown().await;
         let headed_page = headed.get_page().await.unwrap();
 
         assert_eq!(
@@ -435,5 +553,14 @@ mod tests {
                 vec![Event::Launched(1), Event::ClosedGracefully(1)]
             )
         );
+    }
+
+    #[test]
+    fn headed_and_headless_operations_do_not_block_each_other() {
+        let headless = BrowserSession::new(FakeHost::new("headless"));
+        let headed = BrowserSession::new(FakeHost::new("headed"));
+
+        let _headless_operation = headless.try_operation().unwrap();
+        let _headed_operation = headed.try_operation().unwrap();
     }
 }

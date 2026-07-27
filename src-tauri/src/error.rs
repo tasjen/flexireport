@@ -8,6 +8,8 @@
 pub(crate) enum AppError {
     #[error("{0}")]
     Msg(String),
+    #[error("The {0} browser is busy; wait for the current browser action to finish")]
+    BrowserBusy(&'static str),
     // `CdpError` is large; box it so `Result<_, AppError>` stays small.
     #[error(transparent)]
     Cdp(Box<chromiumoxide::error::CdpError>),
@@ -79,6 +81,18 @@ mod tests {
             serialized,
             serde_json::Value::String(error.to_string()),
             "command errors must serialize as their display text"
+        );
+    }
+
+    #[test]
+    fn a_busy_browser_error_is_ready_for_the_frontend() {
+        let error = AppError::BrowserBusy("headed");
+
+        assert_eq!(
+            serde_json::to_value(&error).unwrap(),
+            serde_json::Value::String(
+                "The headed browser is busy; wait for the current browser action to finish".into()
+            )
         );
     }
 

@@ -1,4 +1,5 @@
 mod account;
+mod basic_auth;
 mod browser_session;
 #[cfg(test)]
 mod command_registry;
@@ -15,9 +16,13 @@ mod submission;
 mod task_parameters;
 
 use account::PortalAccountConfig;
-use browser_session::{BrowserHost, BrowserSession};
+use basic_auth::BasicAuthPolicy;
+use browser_session::{BrowserHost, BrowserOperation, BrowserSession};
 use chromiumoxide::browser::{Browser, BrowserConfig};
-use chromiumoxide::cdp::browser_protocol::network::{Headers, SetExtraHttpHeadersParams};
+use chromiumoxide::cdp::browser_protocol::fetch::{
+    ContinueRequestParams, EnableParams, EventRequestPaused, HeaderEntry, RequestPattern,
+    RequestStage,
+};
 use chromiumoxide::Page;
 pub(crate) use error::AppError;
 use futures::StreamExt;
@@ -25,7 +30,14 @@ use login::{login_script, LoginPortal, PortalLogin, VerifyHost, VerifySession};
 use navigation::{wait_for_navigation, UrlExpectation};
 use project_options::ProjectOptionsCache;
 use serde::Serialize;
-use std::time::Duration;
+use std::{
+    ops::Deref,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+    time::Duration,
+};
 use submission::{
     SubmissionAutomation, SubmissionPlan, SubmissionPortal, SubmissionPreferences,
     SubmissionWorkflow, TaskEntry,
@@ -76,6 +88,118 @@ struct ChromiumHost {
     with_head: bool,
 }
 
+/// A Chromium page plus the request pump that scopes the portal's Basic-auth
+/// header to that page's configured portal origin.
+#[derive(Clone)]
+struct ChromiumPage {
+    page: Page,
+    auth: Arc<Mutex<Option<BasicAuthController>>>,
+}
+
+impl ChromiumPage {
+    fn new(page: Page) -> Self {
+        Self {
+            page,
+            auth: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn install_basic_auth(&self, controller: BasicAuthController) -> Result<(), AppError> {
+        let mut auth = self
+            .auth
+            .lock()
+            .map_err(|_| AppError::from("Portal authentication state is unavailable"))?;
+        *auth = Some(controller);
+        Ok(())
+    }
+
+    fn basic_auth_is_healthy(&self) -> bool {
+        self.auth
+            .lock()
+            .is_ok_and(|auth| auth.as_ref().is_some_and(BasicAuthController::is_healthy))
+    }
+
+    fn stop_basic_auth(&self) {
+        if let Ok(mut auth) = self.auth.lock() {
+            auth.take();
+        }
+    }
+}
+
+impl Deref for ChromiumPage {
+    type Target = Page;
+
+    fn deref(&self) -> &Self::Target {
+        &self.page
+    }
+}
+
+/// Owns the page-scoped Fetch event pump. Dropping it aborts the pump before
+/// the page/browser is closed, so no request can remain paused by an orphaned
+/// interceptor.
+struct BasicAuthController {
+    task: tokio::task::JoinHandle<()>,
+    healthy: Arc<AtomicBool>,
+}
+
+impl BasicAuthController {
+    async fn start(page: &Page, portal_url: &str, token: &str) -> Result<Self, AppError> {
+        let policy = BasicAuthPolicy::new(portal_url, token)?;
+        let pattern = policy.url_pattern();
+
+        // Subscribe before enabling Fetch so the first paused request cannot
+        // race ahead of the pump.
+        let mut requests = page.event_listener::<EventRequestPaused>().await?;
+        let pump_page = page.clone();
+        let healthy = Arc::new(AtomicBool::new(true));
+        let pump_health = Arc::clone(&healthy);
+        let task = tokio::spawn(async move {
+            while let Some(request) = requests.next().await {
+                let mut continuation = ContinueRequestParams::new(request.request_id.clone());
+                if let Some(headers) =
+                    policy.headers_for(&request.request.url, request.request.headers.inner())
+                {
+                    continuation.headers = Some(
+                        headers
+                            .into_iter()
+                            .map(|(name, value)| HeaderEntry::new(name, value))
+                            .collect(),
+                    );
+                }
+                if let Err(error) = pump_page.execute(continuation).await {
+                    log::warn!("portal Basic-auth request pump stopped: {error}");
+                    break;
+                }
+            }
+            pump_health.store(false, Ordering::Release);
+        });
+        let controller = Self { task, healthy };
+
+        let pattern = RequestPattern::builder()
+            .url_pattern(pattern)
+            .request_stage(RequestStage::Request)
+            .build();
+        if let Err(error) = page
+            .execute(EnableParams::builder().pattern(pattern).build())
+            .await
+        {
+            drop(controller);
+            return Err(error.into());
+        }
+        Ok(controller)
+    }
+
+    fn is_healthy(&self) -> bool {
+        self.healthy.load(Ordering::Acquire) && !self.task.is_finished()
+    }
+}
+
+impl Drop for BasicAuthController {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
 /// One lazily-launched, logged-in Chromium instance. All reuse and teardown
 /// policy lives in [`BrowserSession`](browser_session::BrowserSession).
 type BrowserState = BrowserSession<ChromiumHost>;
@@ -91,7 +215,7 @@ struct HeadedBrowserState(BrowserState);
 struct HeadlessBrowserState(BrowserState);
 
 /// Lets a `BrowserState` newtype deref to the inner state, so both wrappers
-/// share `get_page`/`close` without duplicating the boilerplate.
+/// share the session interface without duplicating the boilerplate.
 macro_rules! impl_browser_state_deref {
     ($wrapper:ty) => {
         impl std::ops::Deref for $wrapper {
@@ -115,14 +239,18 @@ struct ChromiumVerifyHost {
 
 impl VerifyHost for ChromiumVerifyHost {
     type Browser = Browser;
-    type Page = Page;
+    type Page = ChromiumPage;
 
-    async fn launch(&self) -> Result<(Browser, Page), AppError> {
+    async fn launch(&self) -> Result<(Browser, ChromiumPage), AppError> {
         let user_data_dir = profile_dir(&self.app.path().app_cache_dir()?, VERIFY_PROFILE);
         launch_browser(&user_data_dir, false, VERIFY_PROFILE).await
     }
 
-    async fn login(&self, page: &Page, config: &PortalAccountConfig) -> Result<(), AppError> {
+    async fn login(
+        &self,
+        page: &ChromiumPage,
+        config: &PortalAccountConfig,
+    ) -> Result<(), AppError> {
         login_to_portal(page, config, "verify").await
     }
 
@@ -153,14 +281,14 @@ impl ChromiumHost {
 
 impl BrowserHost for ChromiumHost {
     type Browser = Browser;
-    type Page = Page;
+    type Page = ChromiumPage;
 
     fn label(&self) -> &'static str {
         browser_label(self.with_head)
     }
 
     /// Launches a fresh Chromium instance and logs into the admin portal.
-    async fn launch(&self) -> Result<(Browser, Page), AppError> {
+    async fn launch(&self) -> Result<(Browser, ChromiumPage), AppError> {
         // Read the whole config first: a missing value must fail before we
         // spend the cost of launching a browser.
         let account = portal_account(&self.app)?;
@@ -196,15 +324,17 @@ impl BrowserHost for ChromiumHost {
     /// process-level check (`Browser::try_wait`) is likewise insufficient: on
     /// macOS the process lingers after its last window closes. Probe the live
     /// session, not the cache or the process.
-    async fn is_page_alive(&self, page: &Page) -> bool {
-        matches!(
-            tokio::time::timeout(std::time::Duration::from_secs(2), page.evaluate("1")).await,
-            Ok(Ok(_))
-        )
+    async fn is_page_alive(&self, page: &ChromiumPage) -> bool {
+        page.basic_auth_is_healthy()
+            && matches!(
+                tokio::time::timeout(std::time::Duration::from_secs(2), page.evaluate("1")).await,
+                Ok(Ok(_))
+            )
     }
 
-    async fn close(&self, browser: &mut Browser, page: Page) {
-        let _ = page.close().await;
+    async fn close(&self, browser: &mut Browser, page: ChromiumPage) {
+        page.stop_basic_auth();
+        let _ = page.page.clone().close().await;
         let _ = browser.close().await;
         let _ = browser.wait().await;
     }
@@ -221,7 +351,7 @@ async fn launch_browser(
     user_data_dir: &std::path::Path,
     with_head: bool,
     label: &str,
-) -> Result<(Browser, Page), AppError> {
+) -> Result<(Browser, ChromiumPage), AppError> {
     // Start each launch from a clean profile in our own cache dir. Wiping
     // also clears any stale `SingletonLock` a previous unclean shutdown left
     // behind, so a leftover Chromium can't make this launch hand off and exit.
@@ -237,39 +367,39 @@ async fn launch_browser(
     }
     let (browser, mut handler) = Browser::launch(config.build()?).await?;
     tokio::spawn(async move { while handler.next().await.is_some() {} });
-    let page = browser.new_page("about:blank").await?;
+    let page = ChromiumPage::new(browser.new_page("about:blank").await?);
     Ok((browser, page))
 }
 
 /// The real `LoginPortal`: a Chromium page with stealth mode enabled. Holds no
 /// login policy — the sequence lives in `PortalLogin::execute`.
-struct ChromiumLoginPortal<'a>(&'a Page);
+struct ChromiumLoginPortal<'a> {
+    page: &'a ChromiumPage,
+    portal_url: &'a str,
+}
 
 impl LoginPortal for ChromiumLoginPortal<'_> {
     async fn set_basic_auth(&mut self, token: &str) -> Result<(), AppError> {
-        self.0.enable_stealth_mode().await?;
-        self.0
-            .execute(SetExtraHttpHeadersParams::new(Headers::new(
-                serde_json::json!({ "Authorization": format!("Basic {token}") }),
-            )))
-            .await?;
+        self.page.enable_stealth_mode().await?;
+        let controller = BasicAuthController::start(self.page, self.portal_url, token).await?;
+        self.page.install_basic_auth(controller)?;
         Ok(())
     }
 
     async fn goto(&mut self, url: &str) -> Result<(), AppError> {
-        self.0.goto(url).await?;
+        self.page.goto(url).await?;
         Ok(())
     }
 
     async fn submit_phone(&mut self, phone: &str) -> Result<(), AppError> {
-        self.0
+        self.page
             .evaluate(login_script(LOGIN_INPUT_SELECTOR, phone)?)
             .await?;
         Ok(())
     }
 
     async fn wait_for_url(&mut self, expected: &str, timeout: Duration) -> Result<(), AppError> {
-        wait_for_url(self.0, expected, timeout.as_millis() as u64).await
+        wait_for_url(self.page, expected, timeout.as_millis() as u64).await
     }
 }
 
@@ -277,11 +407,19 @@ impl LoginPortal for ChromiumLoginPortal<'_> {
 /// browser sessions (values from `store.json`) and `verify_portal_login`
 /// (candidate values from the Account form), so login can't drift between them.
 async fn login_to_portal(
-    page: &Page,
+    page: &ChromiumPage,
     config: &PortalAccountConfig,
     label: &str,
 ) -> Result<(), AppError> {
-    PortalLogin::execute(config, label, &mut ChromiumLoginPortal(page)).await
+    PortalLogin::execute(
+        config,
+        label,
+        &mut ChromiumLoginPortal {
+            page,
+            portal_url: config.portal_url(),
+        },
+    )
+    .await
 }
 
 /// Reads and validates the portal account config from `store.json`. Free
@@ -382,7 +520,7 @@ async fn close_browsers(
     headed: tauri::State<'_, HeadedBrowserState>,
 ) -> Result<(), AppError> {
     log::info!("close_browsers: tearing down both browser instances");
-    lifecycle::close_persistent_sessions(&headless, &headed, &PROJECT_OPTIONS).await;
+    lifecycle::close_persistent_sessions(&headless, &headed, &PROJECT_OPTIONS).await?;
     Ok(())
 }
 
@@ -410,10 +548,11 @@ async fn verify_portal_login(
 async fn get_task_parameters(
     state: tauri::State<'_, HeadlessBrowserState>,
 ) -> Result<TaskParameters, AppError> {
+    let mut operation = state.try_operation()?;
     let base_url = portal_url(&state.host().app)?;
-    let page = state.get_page().await?;
+    let page = operation.page().await?;
     let source = ChromiumTaskFormSource {
-        page: &page,
+        page,
         base_url: &base_url,
     };
 
@@ -430,16 +569,16 @@ async fn get_task_parameters(
 
 #[tauri::command]
 async fn open_member_page(state: tauri::State<'_, HeadedBrowserState>) -> Result<(), AppError> {
+    let mut operation = state.try_operation()?;
     let base_url = portal_url(&state.host().app)?;
-    let page = state.get_page().await?;
+    let page = operation.page().await?;
     page.goto(format!("{base_url}/member.php")).await?;
     page.bring_to_front().await?;
     Ok(())
 }
 
-struct ChromiumSubmissionPortal<'a> {
-    page: &'a Page,
-    state: &'a HeadedBrowserState,
+struct ChromiumSubmissionPortal<'a, 'session> {
+    browser: &'a mut BrowserOperation<'session, ChromiumHost>,
     base_url: &'a str,
 }
 
@@ -506,24 +645,23 @@ async fn submit_task_form(page: &Page) -> Result<(), AppError> {
     Ok(())
 }
 
-impl SubmissionPortal for ChromiumSubmissionPortal<'_> {
+impl SubmissionPortal for ChromiumSubmissionPortal<'_, '_> {
     async fn prepare(&mut self, date: &str, plan: &SubmissionPlan) -> Result<(), AppError> {
-        self.page
-            .goto(format!("{}/task.php", self.base_url))
-            .await?;
-        self.page.bring_to_front().await?;
-        fill_task_form(self.page, date, plan).await
+        let page = self.browser.page().await?;
+        page.goto(format!("{}/task.php", self.base_url)).await?;
+        page.bring_to_front().await?;
+        fill_task_form(page, date, plan).await
     }
 
     async fn submit(&mut self) -> Result<(), AppError> {
         log::info!("submit_task: auto-submitting the task form");
-        submit_task_form(self.page).await
+        submit_task_form(self.browser.page().await?).await
     }
 
     async fn confirm_submission(&mut self) -> Result<(), AppError> {
         // The portal confirms a saved task by navigating to the report page.
         wait_for_url(
-            self.page,
+            self.browser.page().await?,
             &format!("{}/task_report.php", self.base_url),
             10_000,
         )
@@ -532,7 +670,7 @@ impl SubmissionPortal for ChromiumSubmissionPortal<'_> {
 
     async fn close(&mut self) {
         log::info!("submit_task: submission confirmed, closing headed browser");
-        self.state.close().await;
+        self.browser.close().await;
     }
 }
 
@@ -546,8 +684,8 @@ async fn submit_task(
         "submit_task: pre-filling form for date {date} ({} row(s))",
         entries.len().max(1)
     );
+    let mut operation = state.try_operation()?;
     let base_url = portal_url(&state.host().app)?;
-    let page = state.get_page().await?;
 
     let store = state.host().app.store("store.json")?;
     let preferences = store.get("preferences");
@@ -573,8 +711,7 @@ async fn submit_task(
     )?;
     let automation = SubmissionAutomation::from_preferences(preferences.as_ref());
     let mut portal = ChromiumSubmissionPortal {
-        page: &page,
-        state: &state,
+        browser: &mut operation,
         base_url: &base_url,
     };
 

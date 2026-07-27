@@ -73,34 +73,34 @@ The backend manages **two separate browser instances**, distinguished by newtype
 
 Both wrap `BrowserState`, an alias for `BrowserSession<ChromiumHost>`. The split keeps reuse/teardown policy testable without a real browser:
 
-- **`BrowserSession<H>`** ([src-tauri/src/browser_session.rs](src-tauri/src/browser_session.rs)) holds `Mutex<Option<(H::Browser, H::Page)>>` and owns *all* the policy: lazy launch, liveness probing, stale replacement, and the bounded graceful close.
+- **`BrowserSession<H>`** ([src-tauri/src/browser_session.rs](src-tauri/src/browser_session.rs)) holds an operation mutex plus `Mutex<Option<(H::Browser, H::Page)>>` and owns *all* the policy: fail-fast command exclusivity, lazy launch, liveness probing, stale replacement, and the bounded graceful close. An ordinary command holds one `BrowserOperation` for its full Chromium workflow; a second command for the same headed/headless instance immediately returns `BrowserBusy`, while commands for the other instance remain independent.
 - **`BrowserHost`** is the system boundary — `launch` (launch + login), `is_page_alive`, `close`, `kill`, `label`. `ChromiumHost` in [src-tauri/src/lib.rs](src-tauri/src/lib.rs) is the only real implementation; it owns the `AppHandle` and `with_head`, so commands needing the handle go through `state.host().app`.
 
 Put new policy in the session and new Chromium calls in the host. Policy added to `ChromiumHost` becomes untestable.
 
 Each instance:
 
-- Lazily launches through `get_page()` and reuses the browser.
+- Lazily launches through `BrowserOperation::page()` and reuses the browser.
 - Uses a fixed Chromium user-data dir under the app cache: `app_cache_dir()/profiles/{headed,headless}`. Separate subdirs prevent profile-lock contention.
 - Wipes its dir before each launch. Using the app cache instead of shared system temp avoids macOS “access data from other apps” prompts; wiping removes stale `SingletonLock` files after unclean shutdowns, preventing leftover Chromium from making a new launch hand off and exit.
 
-**Every path that gives up a session removes it from the state before shutting it down.** A failed launch, a dead page, and a hung close all leave the state empty rather than holding a pair the next caller might reuse. `get_page` also holds the lock across the launch, so concurrent callers get one session instead of racing two browsers into the same profile dir.
+**Every path that gives up a session removes it from the state before shutting it down.** A failed launch, a dead page, and a hung close all leave the state empty rather than holding a pair the next caller might reuse. The inner lock is held across the launch, so replacement cannot race teardown.
 
-**Project options are cached per login, not per process.** `ProjectOptionsCache` ([src-tauri/src/project_options.rs](src-tauri/src/project_options.rs)) scrapes the project `<select>` once and shares it; `close_browsers` clears it. That covers both moments the login identity can change — account save and the ≥1h-away reset — so a different member or portal never inherits the previous one's project list. The lock is held across the scrape, so concurrent first readers share one scrape; a failed scrape caches nothing and is retryable. Any new teardown path must clear it too.
+**Project options are cached per login, not per process.** `ProjectOptionsCache` ([src-tauri/src/project_options.rs](src-tauri/src/project_options.rs)) scrapes the project `<select>` once and shares it; `close_browsers` clears it. That covers both moments the login identity can change — before a replacement account is saved and during the ≥1h-away reset — so a different member or portal never inherits the previous one's project list. The lock is held across the scrape, so concurrent first readers share one scrape; a failed scrape caches nothing and is retryable. Any new teardown path must clear it too.
 
-Before reuse, `get_page()` calls the host's `is_page_alive()`, which performs a real JS-context round-trip: `page.evaluate("1")` with a 2s timeout.
+Before reuse, `BrowserOperation::page()` calls the host's `is_page_alive()`, which requires both a healthy Basic-auth request pump and a real JS-context round-trip: `page.evaluate("1")` with a 2s timeout.
 
 - **Do not use `page.url()` as the probe.** chromiumoxide serves it from cached frame state without contacting Chromium, so it remains `Ok` after session death (for example, OS suspension during a long idle). This false positive strands the next real command on a ~30s CDP timeout.
 - **Do not rely on `Browser::try_wait()`.** On macOS, the process can linger after its last window closes.
 - Probe the live session, not cached state or the process. On failure, force-kill the stale instance with `browser.kill()`, then launch and log in again.
 
-### Login flow: `BrowserState::get_page`
+### Login flow: `BrowserOperation::page`
 
-On an instance's first `get_page()`:
+On an instance's first `BrowserOperation::page()`:
 
 1. Read `phone`, `portal_url`, and `portal_credential` from the `account` key in `store.json` through `PortalAccountConfig::from_store_value` ([src-tauri/src/account.rs](src-tauri/src/account.rs)). All three are validated together, so if any is missing the launch fails before spending Chromium startup. Holding a `PortalAccountConfig` is proof login can be attempted — keep reading config through it rather than pulling fields out of the store ad hoc.
 2. Launch Chromium, headed or headless.
-3. Run `PortalLogin::execute` ([src-tauri/src/login.rs](src-tauri/src/login.rs)), which drives the `LoginPortal` boundary in a fixed order: enable stealth mode and set a Basic-auth `Authorization` header from `portal_credential` (the admin site's HTTP basic gate) → navigate to `portal_url` → fill and submit the login input with the phone → poll `wait_for_url` until the current URL reaches `<portal_url>/member.php`, confirming login (`LOGIN_TIMEOUT`, 5s).
+3. Run `PortalLogin::execute` ([src-tauri/src/login.rs](src-tauri/src/login.rs)), which drives the `LoginPortal` boundary in a fixed order: enable stealth mode and start exact-origin request interception that adds the Basic-auth `Authorization` header from `portal_credential` only to the configured portal origin (the admin site's HTTP basic gate) → navigate to `portal_url` → fill and submit the login input with the phone → poll `wait_for_url` until the current URL reaches `<portal_url>/member.php`, confirming login (`LOGIN_TIMEOUT`, 5s).
 
 The sequence is policy and lives in `PortalLogin`; `ChromiumLoginPortal` in `lib.rs` is the only real `LoginPortal`. Both the persistent sessions (stored values) and `verify_portal_login` (candidate values) go through it, so login cannot drift between them. Only a *timeout* gets the "Wrong phone number, portal URL, or portal credential" explanation appended — CDP and navigation failures propagate unchanged.
 
@@ -114,14 +114,14 @@ The sequence is policy and lives in `PortalLogin`; `ChromiumLoginPortal` in `lib
 
 Both teardown paths live in [src-tauri/src/lifecycle.rs](src-tauri/src/lifecycle.rs), generic over the session hosts so their ordering and completeness are testable with fakes:
 
-- `close_persistent_sessions(headless, headed, projects)` backs the `close_browsers` command — both sessions **and** the project cache, since a surviving cache would show the previous member's project list.
+- `close_persistent_sessions(headless, headed, projects)` backs the `close_browsers` command. It reserves both sessions before changing either; if one is busy, it immediately errors and leaves both sessions and the project cache untouched. Once reserved, it closes both sessions **and** clears the project cache, since a surviving cache would show the previous member's project list.
 - `shutdown(headless, headed, verify)` backs `RunEvent::Exit`. It deliberately leaves the project cache alone (the process is ending) and *kills* the verification browser rather than closing it. **Add any new browser instance or long-lived resource here.**
 
 - `run()` handles `RunEvent::Exit` by calling `lifecycle::shutdown`, which closes both managed states and then kills an in-flight `verify_portal_login` browser.
-- `BrowserSession::close()` attempts graceful shutdown through the host: close page → close browser → `wait()`. The session bounds it with `GRACEFUL_CLOSE_TIMEOUT` (3s), then falls back to `kill()`. If the user already closed the window, the connection is gone; graceful close cannot finish and `wait()` would otherwise block forever. Repeated closes and closing an empty session are both no-ops.
+- `BrowserOperation::close()` attempts graceful shutdown through the host: stop request interception → close page → close browser → `wait()`. The session bounds it with `GRACEFUL_CLOSE_TIMEOUT` (3s), then falls back to `kill()`. If the user already closed the window, the connection is gone; graceful close cannot finish and `wait()` would otherwise block forever. Repeated closes and closing an empty session are both no-ops.
 - Do **not** delete user-data dirs on close. The fixed app-cache paths are bounded to three and wiped on next launch, also reclaiming force-quit leftovers.
 - The `close_browsers` command closes **both** instances. The frontend calls it:
-  - after an account change, forcing login with the new phone; otherwise a reused headed session could submit as the previous member;
+  - before persisting an account change, forcing login with the new phone; otherwise a reused headed session could submit as the previous member. A busy error aborts the save, so new stored credentials can never coexist with the old authenticated sessions;
   - when focus returns after ≥1h unfocused via `useResetWhenAway` (see Frontend).
 - When adding browser instances or long-lived resources, also tear them down in the `Exit` handler.
 
@@ -150,7 +150,7 @@ Define these in [src-tauri/src/lib.rs](src-tauri/src/lib.rs) and register them i
   - Every row's project options are filtered to `project_list` + `default_project` + entry projects.
   - **More than 3 entries is an error, not a truncation.** The form has 3 row pairs and `buildSubmission` already merges overflow into row 3, so a longer list means a caller bug; `SubmissionPlan::build` rejects it rather than silently shipping a report missing part of the day's work.
   - **Clicks submit only when `auto_submit` is on**; otherwise the user does. See the submission workflow below.
-- **`close_browsers()`:** Tears down both instances and clears the cached project options. Called after account save to remove the old login and by the ≥1h-away reset in `use-reset-when-away.ts`.
+- **`close_browsers()`:** Atomically reserves and tears down both instances, then clears the cached project options. If either instance is busy, it immediately errors without changing either session or the cache. Called before replacing an existing account and by the ≥1h-away reset in `use-reset-when-away.ts`.
 - **`verify_portal_login(portal_url, portal_credential, phone)`:** Logs into the portal with a throwaway headless browser and its own `profiles/verify` dir. Uses the passed *candidate* values and **never** reads `store.json`; they go through `PortalAccountConfig::from_candidates`, which shares validation and trailing-slash normalization with the stored path so a value cannot verify one way and behave another once saved. The Account form calls it before saving. `VerifySession` ([src-tauri/src/login.rs](src-tauri/src/login.rs)) kills the browser after the check, pass or fail.
   - It holds **two** locks. `running` serializes checks, which share one profile dir. `parked` holds the in-flight browser for the `Exit` handler. They must stay separate: with one lock, exit would block waiting for the very check it is trying to abort. Login runs on the `Page`, which is independent of the parked `Browser`.
 
@@ -182,7 +182,7 @@ Order is load-bearing: prepare always runs; `auto_close` can never close anythin
 - [src/components/account-form.tsx](src/components/account-form.tsx): Secrets dialog for portal URL, portal credential, phone, Jira email, and Jira API token; inputs strip all spaces.
   - On save, `useVerifyAccountMutation` verifies candidate portal values via `verify_portal_login` and Jira via `/rest/api/3/myself`, in parallel.
   - On failure, an error box lists each failed check; “Save anyway” skips verification for offline/portal-down cases.
-  - Only then write `store.json`, call `close_browsers`, and invalidate `task_parameters`.
+  - Only then call `close_browsers` for an existing account, write `store.json`, update the account cache, and invalidate `task_parameters`. A busy teardown aborts before persistence and leaves the old account active.
   - Open automatically until portal fields are configured, covering fresh installs and stores predating those fields.
 - [src/components/preferences-form.tsx](src/components/preferences-form.tsx): Dialog containing `DefaultProjectSelect`, `ProjectListSelect`, `ProjectMapForm`, `DefaultTaskGroupsSelect`, and `ThemeToggle`.
 - [src/components/project-map-form.tsx](src/components/project-map-form.tsx): Add/delete editor for `project_map` (project key → portal project); normalizes keys to uppercase, rejects duplicates, and caps the map at 3 distinct portal projects because the form has 3 row pairs. “Project key” means a Jira issue-key prefix or a favorite's custom `project_key` tag.

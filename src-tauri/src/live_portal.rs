@@ -30,7 +30,7 @@ use chromiumoxide::{Browser, Page};
 
 use crate::{
     account::PortalAccountConfig, launch_browser, login_to_portal, profile_dir,
-    project_options::ProjectOptionsCache, task_parameters::TaskParametersScrape,
+    project_options::ProjectOptionsCache, task_parameters::TaskParametersScrape, ChromiumPage,
     ChromiumTaskFormSource, TASK_COMMENT_TEXTAREA_PREFIX, TASK_DATE_SELECT, TASK_FORM_SELECTOR,
     TASK_LEAVE_SELECT, TASK_PROJECT_SELECT_PREFIX,
 };
@@ -55,7 +55,7 @@ fn live_config() -> PortalAccountConfig {
 /// A real, logged-in headless browser against the real portal.
 struct LiveSession {
     browser: Browser,
-    page: Page,
+    page: ChromiumPage,
     config: PortalAccountConfig,
 }
 

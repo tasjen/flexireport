@@ -9,6 +9,7 @@ use crate::{
     browser_session::{BrowserHost, BrowserSession},
     login::{VerifyHost, VerifySession},
     project_options::ProjectOptionsCache,
+    AppError,
 };
 
 /// Tears down both persistent sessions and drops the cached project list.
@@ -21,9 +22,15 @@ pub(crate) async fn close_persistent_sessions<A: BrowserHost, B: BrowserHost>(
     headless: &BrowserSession<A>,
     headed: &BrowserSession<B>,
     projects: &ProjectOptionsCache,
-) {
-    tokio::join!(headless.close(), headed.close());
+) -> Result<(), AppError> {
+    // Reserve both sessions before mutating either one. If either is busy,
+    // `?` drops the first reservation and leaves both sessions plus the cache
+    // untouched, so the caller can retry after the active command finishes.
+    let mut headless_operation = headless.try_operation()?;
+    let mut headed_operation = headed.try_operation()?;
+    tokio::join!(headless_operation.close(), headed_operation.close());
     projects.clear().await;
+    Ok(())
 }
 
 /// Terminates every browser the app owns, for `RunEvent::Exit`.
@@ -38,8 +45,8 @@ pub(crate) async fn shutdown<A: BrowserHost, B: BrowserHost, V: VerifyHost>(
     headed: &BrowserSession<B>,
     verify: &VerifySession<V>,
 ) {
-    headless.close().await;
-    headed.close().await;
+    headless.shutdown().await;
+    headed.shutdown().await;
     verify.kill_parked().await;
 }
 
@@ -49,7 +56,7 @@ mod tests {
 
     use crate::{
         account::PortalAccountConfig,
-        browser_session::test_support::{fake_session, Event, FakeHost},
+        browser_session::test_support::{fake_session, Event, FakeHost, FakePage},
         browser_session::BrowserSession,
         login::test_support::{verify_session, FakeVerifyHost, VerifyEvent},
         login::VerifySession,
@@ -61,6 +68,11 @@ mod tests {
 
     fn sessions() -> (BrowserSession<FakeHost>, BrowserSession<FakeHost>) {
         (fake_session("headless"), fake_session("headed"))
+    }
+
+    async fn start(session: &BrowserSession<FakeHost>) -> FakePage {
+        let mut operation = session.try_operation().unwrap();
+        *operation.page().await.unwrap()
     }
 
     fn projects(label: &str) -> Vec<SelectOption> {
@@ -82,10 +94,12 @@ mod tests {
     #[tokio::test]
     async fn closing_the_browsers_shuts_down_both_sessions() {
         let (headless, headed) = sessions();
-        headless.get_page().await.unwrap();
-        headed.get_page().await.unwrap();
+        start(&headless).await;
+        start(&headed).await;
 
-        close_persistent_sessions(&headless, &headed, &ProjectOptionsCache::new()).await;
+        close_persistent_sessions(&headless, &headed, &ProjectOptionsCache::new())
+            .await
+            .unwrap();
 
         assert_eq!(
             (headless.host().events(), headed.host().events()),
@@ -97,6 +111,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_busy_session_prevents_either_browser_or_the_project_cache_from_closing() {
+        let (headless, headed) = sessions();
+        start(&headless).await;
+        start(&headed).await;
+        let active = headed.try_operation().unwrap();
+        let cache = ProjectOptionsCache::new();
+        cache
+            .get_or_scrape(|| async { Ok(projects("old account")) })
+            .await
+            .unwrap();
+
+        let error = close_persistent_sessions(&headless, &headed, &cache)
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            (
+                error.to_string(),
+                headless.host().events(),
+                headed.host().events(),
+                cache
+                    .get_or_scrape(|| async { Ok(projects("new account")) })
+                    .await
+                    .unwrap(),
+            ),
+            (
+                "The headed browser is busy; wait for the current browser action to finish"
+                    .to_string(),
+                vec![Event::Launched(1)],
+                vec![Event::Launched(1)],
+                projects("old account"),
+            )
+        );
+        drop(active);
+    }
+
+    #[tokio::test]
     async fn closing_the_browsers_drops_the_cached_project_list() {
         let (headless, headed) = sessions();
         let cache = ProjectOptionsCache::new();
@@ -105,7 +156,9 @@ mod tests {
             .await
             .unwrap();
 
-        close_persistent_sessions(&headless, &headed, &cache).await;
+        close_persistent_sessions(&headless, &headed, &cache)
+            .await
+            .unwrap();
         let after = cache
             .get_or_scrape(|| async { Ok(projects("new account")) })
             .await
@@ -117,11 +170,13 @@ mod tests {
     #[tokio::test]
     async fn a_new_account_cannot_inherit_the_previous_logins_session() {
         let (headless, headed) = sessions();
-        headless.get_page().await.unwrap();
-        headed.get_page().await.unwrap();
+        start(&headless).await;
+        start(&headed).await;
 
-        close_persistent_sessions(&headless, &headed, &ProjectOptionsCache::new()).await;
-        let page = headed.get_page().await.unwrap();
+        close_persistent_sessions(&headless, &headed, &ProjectOptionsCache::new())
+            .await
+            .unwrap();
+        let page = start(&headed).await;
 
         // A second `Launched` with no `Probed` in between: the old login's
         // session was gone rather than merely stale, so nothing could be
@@ -143,8 +198,12 @@ mod tests {
     async fn closing_the_browsers_with_nothing_open_is_harmless() {
         let (headless, headed) = sessions();
 
-        close_persistent_sessions(&headless, &headed, &ProjectOptionsCache::new()).await;
-        close_persistent_sessions(&headless, &headed, &ProjectOptionsCache::new()).await;
+        close_persistent_sessions(&headless, &headed, &ProjectOptionsCache::new())
+            .await
+            .unwrap();
+        close_persistent_sessions(&headless, &headed, &ProjectOptionsCache::new())
+            .await
+            .unwrap();
 
         assert_eq!(
             (headless.host().events(), headed.host().events()),
@@ -156,8 +215,8 @@ mod tests {
     async fn app_exit_closes_both_persistent_browsers() {
         let (headless, headed) = sessions();
         let verify = verify_session();
-        headless.get_page().await.unwrap();
-        headed.get_page().await.unwrap();
+        start(&headless).await;
+        start(&headed).await;
 
         shutdown(&headless, &headed, &verify).await;
 

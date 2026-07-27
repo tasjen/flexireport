@@ -33,15 +33,15 @@ use std::{
     thread::JoinHandle,
 };
 
-use chromiumoxide::{Browser, Page};
+use chromiumoxide::Browser;
 use tiny_http::{Header, Response, Server};
 
 use crate::{
     account::PortalAccountConfig, fill_task_form, get_select_options, launch_browser,
     login_to_portal, project_options::ProjectOptionsCache, submit_task_form,
-    task_parameters::TaskParametersScrape, wait_for_url, AppError, ChromiumTaskFormSource,
-    SelectOption, SubmissionPlan, SubmissionPreferences, TaskEntry, TASK_DATE_SELECT,
-    TASK_LEAVE_SELECT, TASK_PROJECT_SELECT_PREFIX,
+    task_parameters::TaskParametersScrape, wait_for_url, AppError, ChromiumPage,
+    ChromiumTaskFormSource, SelectOption, SubmissionPlan, SubmissionPreferences, TaskEntry,
+    TASK_DATE_SELECT, TASK_LEAVE_SELECT, TASK_PROJECT_SELECT_PREFIX,
 };
 
 const LOGIN_HTML: &str = include_str!("fixtures/login.html");
@@ -116,6 +116,7 @@ fn percent_decode(input: &str) -> String {
 struct FixtureServer {
     base_url: String,
     requests: Arc<Mutex<Vec<RecordedRequest>>>,
+    cross_origin_base: Arc<Mutex<Option<String>>>,
     server: Arc<Server>,
     stopping: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
@@ -130,11 +131,13 @@ impl FixtureServer {
             .expect("fixture server has no IP address")
             .port();
         let requests = Arc::new(Mutex::new(Vec::new()));
+        let cross_origin_base = Arc::new(Mutex::new(None));
         let stopping = Arc::new(AtomicBool::new(false));
 
         let worker = {
             let server = Arc::clone(&server);
             let requests = Arc::clone(&requests);
+            let cross_origin_base = Arc::clone(&cross_origin_base);
             let stopping = Arc::clone(&stopping);
             std::thread::spawn(move || {
                 while let Ok(mut request) = server.recv() {
@@ -175,6 +178,24 @@ impl FixtureServer {
                         ("/member.php", _) => request.respond(html(MEMBER_HTML)),
                         ("/task.php", _) => request.respond(html(TASK_HTML)),
                         ("/task_report.php", _) => request.respond(html(TASK_REPORT_HTML)),
+                        ("/cross-origin.html", _) => {
+                            let base = cross_origin_base
+                                .lock()
+                                .unwrap()
+                                .clone()
+                                .expect("cross-origin fixture target was not configured");
+                            request.respond(html(&format!(
+                                "<!doctype html><img src=\"{base}/pixel\">"
+                            )))
+                        }
+                        ("/cross-origin-redirect", _) => {
+                            let base = cross_origin_base
+                                .lock()
+                                .unwrap()
+                                .clone()
+                                .expect("cross-origin fixture target was not configured");
+                            request.respond(redirect(&format!("{base}/landing")))
+                        }
                         ("/option_edge_cases.html", _) => {
                             request.respond(html(OPTION_EDGE_CASES_HTML))
                         }
@@ -187,6 +208,7 @@ impl FixtureServer {
         Self {
             base_url: format!("http://127.0.0.1:{port}"),
             requests,
+            cross_origin_base,
             server,
             stopping,
             worker: Some(worker),
@@ -195,6 +217,10 @@ impl FixtureServer {
 
     fn requests(&self) -> Vec<RecordedRequest> {
         self.requests.lock().unwrap().clone()
+    }
+
+    fn point_cross_origin_requests_at(&self, other: &FixtureServer) {
+        *self.cross_origin_base.lock().unwrap() = Some(other.base_url.clone());
     }
 
     /// The last request for `path`, or a panic naming what was seen instead —
@@ -235,7 +261,7 @@ fn redirect(location: &str) -> Response<std::io::Empty> {
 /// never contend for a profile lock.
 struct TestBrowser {
     browser: Browser,
-    page: Page,
+    page: ChromiumPage,
 }
 
 impl TestBrowser {
@@ -323,6 +349,37 @@ async fn login_sends_the_basic_auth_header_and_the_configured_phone() {
         submitted.form_fields().get("tel").map(String::as_str),
         Some("0812345678"),
         "the login form did not submit the configured phone"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs a real Chromium; run with --ignored"]
+async fn basic_auth_is_not_sent_to_a_different_origin() {
+    let portal = FixtureServer::start();
+    let external = FixtureServer::start();
+    portal.point_cross_origin_requests_at(&external);
+    let browser = TestBrowser::launch("auth-origin").await;
+    browser.login(&portal, "0812345678").await.unwrap();
+
+    browser
+        .page
+        .goto(format!("{}/cross-origin.html", portal.base_url))
+        .await
+        .expect("could not load the cross-origin subresource fixture");
+    let subresource = external.last_request_to("GET", "/pixel");
+    let _ = browser
+        .page
+        .goto(format!("{}/cross-origin-redirect", portal.base_url))
+        .await;
+    // The external fixture intentionally returns 404 after recording the
+    // redirected request, which Chromium may surface as a navigation error.
+    let redirected = external.last_request_to("GET", "/landing");
+    browser.close().await;
+
+    assert_eq!(
+        (subresource.authorization, redirected.authorization),
+        (None, None),
+        "the portal credential must never cross an origin boundary"
     );
 }
 
@@ -471,9 +528,15 @@ async fn the_submitted_form_carries_the_exact_date_project_and_summary() {
     .await
     .expect("the portal's post-submit redirect was not recognized");
 
-    let submitted = server.last_request_to("POST", "/task.php").form_fields();
+    let submitted_request = server.last_request_to("POST", "/task.php");
+    let submitted = submitted_request.form_fields();
     browser.close().await;
 
+    assert_eq!(
+        submitted_request.authorization.as_deref(),
+        Some("Basic cG9ydGFsLXVzZXI6cG9ydGFsLXBhc3M="),
+        "same-origin form submissions must retain the portal credential"
+    );
     let field = |name: &str| submitted.get(name).cloned().unwrap_or_default();
     assert_eq!(
         (
