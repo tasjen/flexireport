@@ -127,8 +127,9 @@ export type SubmissionInput = {
   createdKeys: Set<string>;
   projectMap: Record<string, string>;
   defaultProject: string | null;
-  // For project_key tags; favorites appear in allIssues as issue-shaped
-  // objects whose keys carry FAVORITE_KEY_PREFIX.
+  // For each favorite's own portal project; favorites appear in allIssues as
+  // issue-shaped objects whose keys carry FAVORITE_KEY_PREFIX, which strips
+  // the project off, so the list is what puts it back.
   favorites: Favorite[];
 };
 
@@ -231,8 +232,8 @@ export function buildSubmission(input: SubmissionInput): {
     .filter(Boolean)
     .join("\n\n");
 
-  const favoriteKeyByText = new Map(
-    input.favorites.map((favorite) => [favorite.text, favorite.project_key]),
+  const favoriteProjectByText = new Map(
+    input.favorites.map((favorite) => [favorite.text, favorite.project]),
   );
   const buckets = new Map<string, Bucket>();
   const getBucket = (portalProject: string): Bucket => {
@@ -245,16 +246,23 @@ export function buildSubmission(input: SubmissionInput): {
   };
   const unmappedIssues: JiraIssue[] = [];
   const unmappedFavoriteTexts: string[] = [];
-  const resolvePortalProject = (projectKey: string | null | undefined) =>
-    (projectKey ? input.projectMap[projectKey] : undefined) ??
-    input.defaultProject;
   for (const issue of jiraIssues) {
-    const portalProject = resolvePortalProject(issue.key.split("-")[0]);
+    // A Jira issue reaches its portal project through project_map, keyed by
+    // the prefix of its issue key.
+    const projectKey = issue.key.split("-")[0];
+    const portalProject =
+      (projectKey ? input.projectMap[projectKey] : undefined) ??
+      input.defaultProject;
     if (portalProject) getBucket(portalProject).issues.push(issue);
     else unmappedIssues.push(issue);
   }
   for (const text of selectedFavoriteTexts) {
-    const portalProject = resolvePortalProject(favoriteKeyByText.get(text));
+    // A favorite names its portal project itself, so no mapping step — an
+    // untagged one still falls back to the default project. `||`, not `??`:
+    // the portal keeps a blank-valued placeholder among its project options,
+    // and a favorite left on it means no project, not a project named "".
+    const portalProject =
+      favoriteProjectByText.get(text) || input.defaultProject;
     if (portalProject) getBucket(portalProject).favoriteTexts.push(text);
     else unmappedFavoriteTexts.push(text);
   }

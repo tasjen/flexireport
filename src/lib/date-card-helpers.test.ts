@@ -171,7 +171,7 @@ describe("buildSubmission", () => {
       createdKeys: new Set(),
       projectMap: {},
       defaultProject: null,
-      favorites: [{ text: "Standup", project_key: null }],
+      favorites: [{ text: "Standup", project: null }],
     });
     expect(summaryText).toBe("• Standup\n\n[Done]\n• XX-2: Write docs");
     expect(submitEntries).toEqual([
@@ -208,7 +208,7 @@ describe("buildSubmission", () => {
       createdKeys: new Set(),
       projectMap: { DR: "100", OPS: "200" },
       defaultProject: null,
-      favorites: [{ text: "Deploy", project_key: "OPS" }],
+      favorites: [{ text: "Deploy", project: "200" }],
     });
     expect(submitEntries).toEqual([
       {
@@ -227,6 +227,44 @@ describe("buildSubmission", () => {
     ]);
   });
 
+  it("routes a favorite by its own portal project, not through project_map", () => {
+    // "Deploy" carries a project the map has no entry for and its text is not
+    // a project key at all: a favorite names its portal project directly.
+    const { submitEntries } = buildSubmission({
+      selectedKeys: ["DR-1", "favorite:Deploy"],
+      allIssues: [
+        issue("DR-1", "Add tests", "In Progress"),
+        favoriteIssue("Deploy"),
+      ],
+      createdKeys: new Set(),
+      projectMap: { DR: "100" },
+      defaultProject: null,
+      favorites: [{ text: "Deploy", project: "300" }],
+    });
+    expect(submitEntries).toEqual([
+      {
+        project: "100",
+        hours: 4,
+        summary: "[In Progress]\n• DR-1: Add tests",
+      },
+      { project: "300", hours: 4, summary: "• Deploy" },
+    ]);
+  });
+
+  it("treats a favorite left on the portal's blank option as having no project", () => {
+    const { submitEntries } = buildSubmission({
+      selectedKeys: ["favorite:Standup"],
+      allIssues: [favoriteIssue("Standup")],
+      createdKeys: new Set(),
+      projectMap: {},
+      defaultProject: "100",
+      favorites: [{ text: "Standup", project: "" }],
+    });
+    expect(submitEntries).toEqual([
+      { project: "100", hours: 8, summary: "• Standup" },
+    ]);
+  });
+
   it("puts unmapped tasks in the default project's bucket, joining its mapped bucket", () => {
     const { submitEntries } = buildSubmission({
       selectedKeys: ["DR-1", "XX-5", "favorite:Standup"],
@@ -238,7 +276,7 @@ describe("buildSubmission", () => {
       createdKeys: new Set(),
       projectMap: { DR: "100" },
       defaultProject: "100",
-      favorites: [{ text: "Standup", project_key: null }],
+      favorites: [{ text: "Standup", project: null }],
     });
     expect(submitEntries).toEqual([
       {
@@ -262,7 +300,7 @@ describe("buildSubmission", () => {
       createdKeys: new Set(),
       projectMap: { DR: "100" },
       defaultProject: null,
-      favorites: [{ text: "Standup", project_key: null }],
+      favorites: [{ text: "Standup", project: null }],
     });
     expect(submitEntries).toEqual([
       {
@@ -476,25 +514,23 @@ describe("jqlFor", () => {
 
 describe("favoritesAsIssues", () => {
   it("prefixes keys so favorites can never collide with a Jira key", () => {
-    const [favorite] = favoritesAsIssues([
-      { text: "Standup", project_key: "OPS" },
-    ]);
+    const [favorite] = favoritesAsIssues([{ text: "Standup", project: "200" }]);
     expect(favorite?.key).toBe(`${FAVORITE_KEY_PREFIX}Standup`);
     expect(favorite?.fields.summary).toBe("Standup");
   });
 
   it("leaves the status blank, so a leaked favorite can't form a status block", () => {
     expect(
-      favoritesAsIssues([{ text: "Standup", project_key: null }])[0]?.fields
-        .status.name,
+      favoritesAsIssues([{ text: "Standup", project: null }])[0]?.fields.status
+        .name,
     ).toBe("");
   });
 
   it("keeps insertion order", () => {
     expect(
       favoritesAsIssues([
-        { text: "Standup", project_key: null },
-        { text: "Code review", project_key: null },
+        { text: "Standup", project: null },
+        { text: "Code review", project: null },
       ]).map((asIssue) => asIssue.fields.summary),
     ).toEqual(["Standup", "Code review"]);
   });
@@ -521,8 +557,8 @@ describe("toOptionItems", () => {
       toOptionItems({
         id: "favorite",
         issues: favoritesAsIssues([
-          { text: "Standup", project_key: null },
-          { text: "Code review", project_key: null },
+          { text: "Standup", project: null },
+          { text: "Code review", project: null },
         ]),
       }),
     ).toEqual([

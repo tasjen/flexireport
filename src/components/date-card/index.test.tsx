@@ -150,7 +150,7 @@ it("renders a group per non-empty source and drops empty groups", async () => {
 });
 
 it("explains each group in a tooltip, with the JQL it actually ran", async () => {
-  setup({ favorites: [{ text: "Standup", project_key: null }] });
+  setup({ favorites: [{ text: "Standup", project: null }] });
   await setJira({
     status: STATUS_ISSUES,
     created: CREATED_ISSUES,
@@ -250,7 +250,7 @@ it("routes the submission through project_map", async () => {
 it("renders favorites and leads the summary with favorite bullets", async () => {
   const submitCalls = setup({
     preferences: { default_task_groups: ["status", "favorite"] },
-    favorites: [{ text: "Standup", project_key: null }],
+    favorites: [{ text: "Standup", project: null }],
   });
   await setJira({
     status: STATUS_ISSUES,
