@@ -298,14 +298,18 @@ impl TestBrowser {
     }
 }
 
-fn plan(entries: Vec<(Option<&str>, &str)>, project_list: Vec<String>) -> SubmissionPlan {
+/// Builds a plan from `(project, summary, hours)` rows. Hours are spelled out
+/// per row rather than derived, since `SubmissionPlan::build` requires them to
+/// total a full day and these tests assert on what reaches the portal.
+fn plan(entries: Vec<(Option<&str>, &str, f64)>, project_list: Vec<String>) -> SubmissionPlan {
     SubmissionPlan::build(
         entries
             .into_iter()
-            .map(|(project, summary)| {
+            .map(|(project, summary, hours)| {
                 serde_json::from_value::<TaskEntry>(serde_json::json!({
                     "project": project,
                     "summary": summary,
+                    "hours": hours,
                 }))
                 .unwrap()
             })
@@ -502,7 +506,7 @@ async fn options_without_a_value_attribute_are_dropped_and_placeholders_are_kept
 
 #[tokio::test]
 #[ignore = "needs a real Chromium; run with --ignored"]
-async fn the_submitted_form_carries_the_exact_date_project_and_summary() {
+async fn the_submitted_form_carries_the_exact_date_project_summary_and_hours() {
     let server = FixtureServer::start();
     let browser = TestBrowser::launch("submit").await;
     browser.login(&server, "0812345678").await.unwrap();
@@ -510,9 +514,9 @@ async fn the_submitted_form_carries_the_exact_date_project_and_summary() {
 
     let plan = plan(
         vec![
-            (Some("1"), "Website work"),
-            (Some("2"), "App work"),
-            (Some("3"), "Tooling"),
+            (Some("1"), "Website work", 4.0),
+            (Some("2"), "App work", 2.5),
+            (Some("3"), "Tooling", 1.5),
         ],
         vec![],
     );
@@ -558,6 +562,18 @@ async fn the_submitted_form_carries_the_exact_date_project_and_summary() {
             "Tooling".into(),
         )
     );
+    // Row 1's select ships with 8 pre-selected and rows 2-3 ship blank, so
+    // these three values are the whole point: they prove every row was written
+    // rather than left to the portal's own defaults, and that a half-hour
+    // renders as the portal's own option value rather than "2.50".
+    assert_eq!(
+        (
+            field("task_work_hour_1"),
+            field("task_work_hour_2"),
+            field("task_work_hour_3"),
+        ),
+        ("4".into(), "2.5".into(), "1.5".into())
+    );
 }
 
 #[tokio::test]
@@ -570,7 +586,7 @@ async fn awkward_summary_text_survives_assignment() {
 
     // Every character class that has broken a hand-quoted JS literal before.
     let summary = "[Done]\n• IT-1: \"quoted\" & 'single'\n• IT-2: back\\slash </textarea> ครับ";
-    let plan = plan(vec![(Some("1"), summary)], vec![]);
+    let plan = plan(vec![(Some("1"), summary, 8.0)], vec![]);
     fill_task_form(&browser.page, "2026-07-24", &plan)
         .await
         .unwrap();
@@ -614,7 +630,7 @@ async fn project_filtering_keeps_allowed_options_and_removes_the_rest() {
 
     // Row 1 is set to project 2, which is not in `project_list` — it must
     // survive the filter anyway, or the row would submit a blank project.
-    let plan = plan(vec![(Some("2"), "App work")], vec!["1".into()]);
+    let plan = plan(vec![(Some("2"), "App work", 8.0)], vec!["1".into()]);
     fill_task_form(&browser.page, "2026-07-24", &plan)
         .await
         .unwrap();
@@ -659,7 +675,7 @@ async fn a_missing_selector_fails_instead_of_silently_submitting_nothing() {
     let error = fill_task_form(
         &browser.page,
         "2026-07-24",
-        &plan(vec![(Some("1"), "x")], vec![]),
+        &plan(vec![(Some("1"), "x", 8.0)], vec![]),
     )
     .await
     .unwrap_err();
@@ -669,5 +685,84 @@ async fn a_missing_selector_fails_instead_of_silently_submitting_nothing() {
     assert!(
         message.contains("null") || message.to_lowercase().contains("cannot"),
         "a vanished selector should fail loudly, got: {message}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs a real Chromium; run with --ignored"]
+async fn a_project_the_portal_no_longer_offers_fails_instead_of_submitting_blank() {
+    let server = FixtureServer::start();
+    let browser = TestBrowser::launch("stale_project").await;
+    browser.login(&server, "0812345678").await.unwrap();
+    browser.goto_task_form(&server).await;
+
+    // Project options are cached per login, so this is the reachable case: the
+    // user picks a project from a list scraped an hour ago that the portal has
+    // since dropped. Assigning it does not throw, it leaves the select blank.
+    browser
+        .page
+        .evaluate(
+            "document
+                .querySelectorAll('select#task_project_id1 option')
+                .forEach((option) => {
+                    if (option.value === '2') option.remove();
+                });",
+        )
+        .await
+        .unwrap();
+
+    let error = fill_task_form(
+        &browser.page,
+        "2026-07-24",
+        &plan(vec![(Some("2"), "App work", 8.0)], vec![]),
+    )
+    .await
+    .unwrap_err();
+    browser.close().await;
+
+    let message = error.to_string();
+    assert!(
+        message.contains("rejected 2"),
+        "a vanished project option should fail loudly, got: {message}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs a real Chromium; run with --ignored"]
+async fn hours_the_portal_no_longer_offers_fail_instead_of_submitting_blank() {
+    let server = FixtureServer::start();
+    let browser = TestBrowser::launch("hours").await;
+    browser.login(&server, "0812345678").await.unwrap();
+    browser.goto_task_form(&server).await;
+
+    // Stands in for a portal that narrowed its hour options. This is the one
+    // failure the other tests cannot reach: assigning a value no `<option>`
+    // carries does not throw, it leaves the select blank — so without the
+    // read-back the report would submit with no hours at all.
+    browser
+        .page
+        .evaluate(
+            "document
+                .querySelectorAll('select#task_work_hour_1 option')
+                .forEach((option) => {
+                    if (option.value === '8') option.remove();
+                });",
+        )
+        .await
+        .unwrap();
+
+    let error = fill_task_form(
+        &browser.page,
+        "2026-07-24",
+        &plan(vec![(Some("1"), "Website work", 8.0)], vec![]),
+    )
+    .await
+    .unwrap_err();
+    browser.close().await;
+
+    let message = error.to_string();
+    assert!(
+        message.contains("rejected 8"),
+        "a missing hour option should fail loudly, got: {message}"
     );
 }

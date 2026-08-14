@@ -142,6 +142,67 @@ function bucketSize(bucket: Bucket): number {
   return bucket.issues.length + bucket.favoriteTexts.length;
 }
 
+// A full day on the portal's task form. Its `task_work_hour_N` selects offer
+// 0.5-hour steps from 0.5 to 8, and the rows of one report must add up to
+// exactly one workday.
+export const WORK_HOURS_PER_DAY = 8;
+const HALF_HOURS_PER_DAY = WORK_HOURS_PER_DAY * 2;
+// A project row is never worth less than an hour, however few tasks landed in
+// it. The backend enforces the same floor.
+const MIN_HALF_HOURS_PER_ROW = 2;
+
+/**
+ * Splits the workday across submission rows in proportion to `weights` — each
+ * row's task count — snapped to the portal's 0.5-hour grid.
+ *
+ * Largest-remainder apportionment: floor every exact share, then hand the
+ * leftover half-hours to the rows that rounding shortchanged most. That is
+ * what keeps the parts summing to exactly 8; rounding each share on its own
+ * does not. No row drops below `MIN_HALF_HOURS_PER_ROW`, so a row worth a
+ * single task still reports an hour against its project.
+ *
+ * Apportioning integer half-hours rather than fractional hours is deliberate:
+ * the result is written into a `<select>` and has to match an option value
+ * exactly, so float drift is not survivable.
+ */
+export function apportionWorkHours(weights: number[]): number[] {
+  if (!weights.length) return [];
+  if (weights.length === 1) return [WORK_HOURS_PER_DAY];
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  // Buckets only exist once something lands in them, so the zero-weight arm is
+  // defensive: split the day evenly rather than divide by zero.
+  const exact = weights.map((weight) =>
+    totalWeight
+      ? (HALF_HOURS_PER_DAY * weight) / totalWeight
+      : HALF_HOURS_PER_DAY / weights.length,
+  );
+  const halves = exact.map((share) =>
+    Math.max(MIN_HALF_HOURS_PER_ROW, Math.floor(share)),
+  );
+  // Positive where flooring cost the row, negative where the one-hour floor
+  // gave it more than its share — one ordering drives both corrections below.
+  const shortfall = exact.map((share, i) => share - (halves[i] ?? 0));
+  const byShortfall = halves
+    .map((_, i) => i)
+    .toSorted((a, b) => (shortfall[b] ?? 0) - (shortfall[a] ?? 0));
+  let left = HALF_HOURS_PER_DAY - halves.reduce((sum, half) => sum + half, 0);
+  for (let n = 0; left > 0; n++, left--) {
+    const row = byShortfall[n % byShortfall.length] ?? 0;
+    halves[row] = (halves[row] ?? 0) + 1;
+  }
+  // Over-allocation only happens when the one-hour floor lifted small rows
+  // above their share. Reclaim from the largest row, which is always big
+  // enough to give one back, because the two quantities move against each
+  // other: a row is only lifted when its exact share is under 2 half-hours,
+  // so two lifted rows (at most 4 to reclaim) leave the largest above 12, and
+  // one lifted row (at most 2) leaves it at 7 or more.
+  for (; left < 0; left++) {
+    const largest = halves.indexOf(Math.max(...halves));
+    halves[largest] = (halves[largest] ?? 0) - 1;
+  }
+  return halves.map((half) => half / 2);
+}
+
 export function buildSubmission(input: SubmissionInput): {
   summaryText: string;
   submitEntries: SubmitTaskEntry[];
@@ -213,11 +274,22 @@ export function buildSubmission(input: SubmissionInput): {
       lastRow[1].favoriteTexts.push(...bucket.favoriteTexts);
     }
   }
+  // Row 1 also carries the unmapped tasks in its comment (see below), so they
+  // count toward its share of the day — otherwise the row doing the most work
+  // is credited with the least of it.
+  const hoursByRow = apportionWorkHours(
+    rows.map(
+      ([, bucket], i) =>
+        bucketSize(bucket) +
+        (i === 0 ? unmappedIssues.length + unmappedFavoriteTexts.length : 0),
+    ),
+  );
   // Without a default project, unmapped tasks ride along in row 1's comment,
   // merged into its favorites/status grouping.
   const submitEntries: SubmitTaskEntry[] = rows.length
     ? rows.map(([project, bucket], i) => ({
         project,
+        hours: hoursByRow[i] ?? WORK_HOURS_PER_DAY,
         summary: [
           bulletLines(
             i === 0
@@ -231,7 +303,7 @@ export function buildSubmission(input: SubmissionInput): {
           .filter(Boolean)
           .join("\n\n"),
       }))
-    : [{ project: null, summary: summaryText }];
+    : [{ project: null, hours: WORK_HOURS_PER_DAY, summary: summaryText }];
   return { summaryText, submitEntries };
 }
 

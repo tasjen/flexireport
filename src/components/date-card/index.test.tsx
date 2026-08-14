@@ -204,7 +204,7 @@ it("default-checks only the status group and submits its issues", async () => {
   await waitFor(() => expect(submitCalls).toHaveLength(1));
   expect(submitCalls[0]).toEqual({
     date: DATE,
-    entries: [{ project: null, summary: STATUS_SUMMARY }],
+    entries: [{ project: null, summary: STATUS_SUMMARY, hours: 8 }],
   });
 });
 
@@ -224,7 +224,7 @@ it("submits one empty row when autofill_summary is off", async () => {
   await waitFor(() => expect(submitCalls).toHaveLength(1));
   expect(submitCalls[0]).toEqual({
     date: DATE,
-    entries: [{ project: null, summary: "" }],
+    entries: [{ project: null, summary: "", hours: 8 }],
   });
 });
 
@@ -243,7 +243,7 @@ it("routes the submission through project_map", async () => {
 
   await waitFor(() => expect(submitCalls).toHaveLength(1));
   expect(submitCalls[0]!.entries).toEqual([
-    { project: "10", summary: STATUS_SUMMARY },
+    { project: "10", summary: STATUS_SUMMARY, hours: 8 },
   ]);
 });
 
@@ -265,7 +265,7 @@ it("renders favorites and leads the summary with favorite bullets", async () => 
 
   await waitFor(() => expect(submitCalls).toHaveLength(1));
   expect(submitCalls[0]!.entries).toEqual([
-    { project: null, summary: `• Standup\n\n${STATUS_SUMMARY}` },
+    { project: null, summary: `• Standup\n\n${STATUS_SUMMARY}`, hours: 8 },
   ]);
 });
 
@@ -327,6 +327,7 @@ it("toggling a created issue on adds it as [Created] to the submission", async (
     {
       project: null,
       summary: `[Created]\n• DR-2: New ticket\n\n${STATUS_SUMMARY}`,
+      hours: 8,
     },
   ]);
 });

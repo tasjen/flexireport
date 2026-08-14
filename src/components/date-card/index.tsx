@@ -3,7 +3,7 @@ import DateCardSummary from "@/components/date-card/summary";
 import TaskSelectGrid from "@/components/date-card/task-select-grid";
 import { Card, CardContent } from "@/components/shared/card";
 import { Separator } from "@/components/shared/separator";
-import { buildSubmission } from "@/lib/date-card-helpers";
+import { buildSubmission, WORK_HOURS_PER_DAY } from "@/lib/date-card-helpers";
 import { useSubmitTaskMutation } from "@/lib/mutations";
 import { usePreferences } from "@/lib/queries";
 import { DEFAULT_PREFERENCES } from "@/lib/store";
@@ -78,10 +78,16 @@ export default function DateCard({ date }: Props) {
             date,
             // Without autofill there is no text to split by project, so send
             // one empty row and let the backend fall back to the default
-            // project — the pre-mapping behavior.
+            // project — the pre-mapping behavior. One row means the whole day.
             entries: autofillSummary
               ? submitEntries
-              : [{ project: null, summary: "" }],
+              : [
+                  {
+                    project: null,
+                    summary: "",
+                    hours: WORK_HOURS_PER_DAY,
+                  },
+                ],
           })
         }
       />

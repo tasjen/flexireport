@@ -65,16 +65,13 @@ export default function TaskSelect({
     >
       <div className={className} ref={anchor} data-testid={testId}>
         {label && (
-          <Label className="mb-2 px-1 text-nowrap">
+          <Label className="mb-2 gap-1 px-1 text-nowrap">
             {label}
             {description && (
               <Tooltip>
                 <TooltipTrigger
                   render={
-                    <span
-                      className="ml-1"
-                      data-testid={testId && `${testId}-info`}
-                    >
+                    <span data-testid={testId && `${testId}-info`}>
                       <InfoIcon size={16} className="inline" />
                     </span>
                   }
