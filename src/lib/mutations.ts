@@ -13,8 +13,14 @@ import { toastError } from "./utils";
 
 // One project/comment row pair of the portal's task form. `project` is a
 // portal project option id; null lets the backend fall back to the
-// default_project preference (only meaningful on the first row).
-export type SubmitTaskEntry = { project: string | null; summary: string };
+// default_project preference (only meaningful on the first row). `hours` is
+// this row's share of the 8-hour day, apportioned by `apportionWorkHours`; the
+// backend rejects a set of rows that does not add up to a full day.
+export type SubmitTaskEntry = {
+  project: string | null;
+  summary: string;
+  hours: number;
+};
 
 export function useSubmitTaskMutation() {
   const queryClient = useQueryClient();

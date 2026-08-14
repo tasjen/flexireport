@@ -58,6 +58,7 @@ const TASK_LEAVE_SELECT: &str = "select#task_leave";
 // number to these prefixes to get a row's selectors.
 const TASK_PROJECT_SELECT_PREFIX: &str = "select#task_project_id";
 const TASK_COMMENT_TEXTAREA_PREFIX: &str = "textarea#task_comment";
+const TASK_WORK_HOUR_SELECT_PREFIX: &str = "select#task_work_hour_";
 const TASK_FORM_SELECTOR: &str = "form[action='task.php']";
 
 /// Path to one of the app's Chromium profile dirs, under the app's own cache
@@ -582,31 +583,78 @@ struct ChromiumSubmissionPortal<'a, 'session> {
     base_url: &'a str,
 }
 
+/// Sets a `<select>` to `value` and proves it took, naming the field as `what`
+/// if it did not.
+///
+/// Assigning a value no `<option>` carries leaves a `<select>` blank instead
+/// of throwing, so the value is read back: that silence is exactly how portal
+/// markup that dropped an option would reach a submitted report.
+async fn set_select_value(
+    page: &Page,
+    selector: &str,
+    value: &str,
+    what: &str,
+) -> Result<(), AppError> {
+    let selector_js = serde_json::to_string(selector)?;
+    let value_js = serde_json::to_string(value)?;
+    let applied: String = page
+        .evaluate(format!(
+            "(() => {{
+                const select = document.querySelector({selector_js});
+                select.value = {value_js};
+                return select.value;
+            }})()"
+        ))
+        .await?
+        .into_value()?;
+    if applied != value {
+        return Err(
+            format!("The portal's {what} select rejected {value}: it has no such option").into(),
+        );
+    }
+    Ok(())
+}
+
 /// Writes the plan into the task form on `page`, which must already be on it.
 /// Free function (not a `ChromiumSubmissionPortal` method) so the DOM contract
 /// can be exercised against a fixture page without an `AppHandle`.
 async fn fill_task_form(page: &Page, date: &str, plan: &SubmissionPlan) -> Result<(), AppError> {
-    // `date` comes from a portal option value, but escape it like every
-    // other injected literal so the trust boundary isn't load-bearing.
-    let date_js = serde_json::to_string(date)?;
-    page.evaluate(format!(
-        "document.querySelector('{TASK_DATE_SELECT}').value = {date_js}"
-    ))
-    .await?;
+    // `date` comes from a portal option value, but the dates are re-read every
+    // scrape and the page can have moved on since, so it gets the same
+    // read-back as the rest.
+    set_select_value(page, TASK_DATE_SELECT, date, "date").await?;
 
     for (i, entry) in plan.rows().iter().enumerate() {
         let row = i + 1;
         if let Some(project) = entry.project() {
-            let project_js = serde_json::to_string(project)?;
-            page.evaluate(format!(
-                "document.querySelector('{TASK_PROJECT_SELECT_PREFIX}{row}').value = {project_js};"
-            ))
+            // Project options are cached per login, not per command, so a
+            // project the portal has since dropped can still reach this point
+            // — and would otherwise submit as a blank select.
+            set_select_value(
+                page,
+                &format!("{TASK_PROJECT_SELECT_PREFIX}{row}"),
+                project,
+                &format!("row {row} project"),
+            )
             .await?;
         }
+        let summary_selector_js =
+            serde_json::to_string(&format!("{TASK_COMMENT_TEXTAREA_PREFIX}{row}"))?;
         let summary_js = serde_json::to_string(entry.summary())?;
         page.evaluate(format!(
-            "document.querySelector('{TASK_COMMENT_TEXTAREA_PREFIX}{row}').value = {summary_js};"
+            "document.querySelector({summary_selector_js}).value = {summary_js};"
         ))
+        .await?;
+
+        // Every row's hours are written explicitly. The portal pre-selects 8
+        // on row 1 and leaves rows 2-3 blank, so a row left alone either
+        // double-counts the day or submits no hours at all.
+        set_select_value(
+            page,
+            &format!("{TASK_WORK_HOUR_SELECT_PREFIX}{row}"),
+            &entry.hours().as_option_value(),
+            &format!("row {row} hours"),
+        )
         .await?;
     }
 

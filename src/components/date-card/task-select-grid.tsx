@@ -30,8 +30,8 @@ export default function TaskSelectGrid({
 
   return (
     <div
-      className={cn("flex flex-col gap-2 min-[832px]:flex-row", {
-        "min-[832px]:grid min-[832px]:grid-cols-2":
+      className={cn("flex flex-col gap-2 min-[864px]:flex-row", {
+        "min-[864px]:grid min-[864px]:grid-cols-2":
           groups.length > TWO_COLUMN_THRESHOLD,
       })}
     >

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildIssueGroups,
   buildJqlForDate,
+  apportionWorkHours,
   buildSubmission,
   defaultCheckedKeysOf,
   buildSummary,
@@ -66,6 +67,62 @@ function favoriteIssue(text: string): JiraIssue {
   };
 }
 
+const sum = (hours: number[]) => hours.reduce((total, h) => total + h, 0);
+
+describe("apportionWorkHours", () => {
+  it("gives a lone row the whole day", () => {
+    expect(apportionWorkHours([1])).toEqual([8]);
+    expect(apportionWorkHours([40])).toEqual([8]);
+  });
+
+  it("splits the day in proportion to task counts", () => {
+    expect(apportionWorkHours([3, 1])).toEqual([6, 2]);
+    expect(apportionWorkHours([1, 1])).toEqual([4, 4]);
+    expect(apportionWorkHours([5, 3, 1])).toEqual([4.5, 2.5, 1]);
+  });
+
+  it("hands the rounding leftover to the most shortchanged row", () => {
+    // 16/3 half-hours each: three floors of 5 leave one half-hour over, and
+    // the highest-ranked row takes it rather than the day summing to 7.5.
+    expect(apportionWorkHours([1, 1, 1])).toEqual([3, 2.5, 2.5]);
+  });
+
+  it("never drops a row below an hour, however small its share", () => {
+    // A row is a project worth reporting, so the one-hour floor wins over the
+    // exact proportion — and the hours it takes come off the largest row, so
+    // the day still totals 8.
+    expect(apportionWorkHours([40, 1])).toEqual([7, 1]);
+    expect(apportionWorkHours([1000, 1, 1])).toEqual([6, 1, 1]);
+  });
+
+  it("always adds up to a full day, whatever the weights", () => {
+    const cases = [
+      [1],
+      [1, 1],
+      [7, 2],
+      [1, 1, 1],
+      [2, 2, 1],
+      [9, 4, 3],
+      [100, 1, 1],
+      [1, 0, 0],
+      [0, 0],
+    ];
+    for (const weights of cases) {
+      const hours = apportionWorkHours(weights);
+      expect([weights, sum(hours)]).toEqual([weights, 8]);
+      // Every value must land on an option of the portal's hour select.
+      for (const value of hours) {
+        expect([weights, value * 2]).toEqual([weights, Math.round(value * 2)]);
+        expect(value).toBeGreaterThanOrEqual(1);
+      }
+    }
+  });
+
+  it("returns nothing for no rows", () => {
+    expect(apportionWorkHours([])).toEqual([]);
+  });
+});
+
 describe("buildSubmission", () => {
   it("degrades to one backend-defaulted entry when nothing is selected", () => {
     expect(
@@ -79,7 +136,7 @@ describe("buildSubmission", () => {
       }),
     ).toEqual({
       summaryText: "",
-      submitEntries: [{ project: null, summary: "" }],
+      submitEntries: [{ project: null, summary: "", hours: 8 }],
     });
   });
 
@@ -99,7 +156,9 @@ describe("buildSubmission", () => {
     expect(summaryText).toBe(
       "[Done]\n• XX-2: Write docs\n\n[In Progress]\n• DR-1: Add tests",
     );
-    expect(submitEntries).toEqual([{ project: null, summary: summaryText }]);
+    expect(submitEntries).toEqual([
+      { project: null, summary: summaryText, hours: 8 },
+    ]);
   });
 
   it("leads the summary with selected favorites as plain bullets", () => {
@@ -115,7 +174,9 @@ describe("buildSubmission", () => {
       favorites: [{ text: "Standup", project_key: null }],
     });
     expect(summaryText).toBe("• Standup\n\n[Done]\n• XX-2: Write docs");
-    expect(submitEntries).toEqual([{ project: null, summary: summaryText }]);
+    expect(submitEntries).toEqual([
+      { project: null, summary: summaryText, hours: 8 },
+    ]);
   });
 
   it("relabels created-group issues to a [Created] block without mutating them", () => {
@@ -152,12 +213,14 @@ describe("buildSubmission", () => {
     expect(submitEntries).toEqual([
       {
         project: "200",
+        hours: 5,
         summary:
           "• Deploy\n\n[Done]\n• OPS-9: Patch server\n\n" +
           "[In Progress]\n• OPS-8: Rotate keys",
       },
       {
         project: "100",
+        hours: 3,
         summary:
           "[Done]\n• DR-2: Fix login\n\n[In Progress]\n• DR-1: Add tests",
       },
@@ -180,6 +243,7 @@ describe("buildSubmission", () => {
     expect(submitEntries).toEqual([
       {
         project: "100",
+        hours: 8,
         summary:
           "• Standup\n\n[Done]\n• XX-5: Unmapped work\n\n" +
           "[In Progress]\n• DR-1: Add tests",
@@ -203,10 +267,33 @@ describe("buildSubmission", () => {
     expect(submitEntries).toEqual([
       {
         project: "100",
+        hours: 8,
         summary:
           "• Standup\n\n[Done]\n• XX-5: Unmapped work\n\n" +
           "[In Progress]\n• DR-1: Add tests",
       },
+    ]);
+  });
+
+  it("counts unmapped tasks toward row 1's share when rows compete", () => {
+    const { submitEntries } = buildSubmission({
+      selectedKeys: ["A-1", "B-1", "XX-1"],
+      allIssues: [
+        issue("A-1", "Mapped to row 1", "Done"),
+        issue("B-1", "Mapped to row 2", "Done"),
+        issue("XX-1", "Unmapped work", "Done"),
+      ],
+      createdKeys: new Set(),
+      projectMap: { A: "1", B: "2" },
+      defaultProject: null,
+      favorites: [],
+    });
+
+    expect(
+      submitEntries.map(({ project, hours }) => ({ project, hours })),
+    ).toEqual([
+      { project: "1", hours: 5.5 },
+      { project: "2", hours: 2.5 },
     ]);
   });
 
@@ -229,9 +316,13 @@ describe("buildSubmission", () => {
       favorites: [],
     });
     expect(submitEntries).toEqual([
-      { project: "1", summary: "[Done]\n• A-1: a1\n• A-2: a2\n• A-3: a3" },
-      { project: "2", summary: "[Done]\n• B-1: b1\n• B-2: b2" },
-      { project: "3", summary: "[Done]\n• C-1: c1\n• XX-1: x1" },
+      {
+        project: "1",
+        hours: 3.5,
+        summary: "[Done]\n• A-1: a1\n• A-2: a2\n• A-3: a3",
+      },
+      { project: "2", hours: 2.5, summary: "[Done]\n• B-1: b1\n• B-2: b2" },
+      { project: "3", hours: 2, summary: "[Done]\n• C-1: c1\n• XX-1: x1" },
     ]);
   });
 });
