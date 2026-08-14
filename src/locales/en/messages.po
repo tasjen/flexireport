@@ -13,7 +13,7 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
-#: src/components/task-select.tsx:75
+#: src/components/task-select.tsx:96
 msgid "(all selected)"
 msgstr "(all selected)"
 
@@ -25,7 +25,7 @@ msgstr "{dayCount} days ago"
 msgid "Account"
 msgstr "Account"
 
-#: src/components/favorites-form.tsx:104
+#: src/components/favorites-form.tsx:121
 msgid "Add a favorite task"
 msgstr "Add a favorite task"
 
@@ -82,7 +82,7 @@ msgstr "Enter a valid email address"
 msgid "Enter a valid http(s) URL"
 msgstr "Enter a valid http(s) URL"
 
-#: src/components/favorites-form.tsx:67
+#: src/components/favorites-form.tsx:84
 #: src/lib/task-groups.ts:37
 msgid "Favorites"
 msgstr "Favorites"
@@ -99,7 +99,7 @@ msgstr "Issues whose status you changed on this date."
 msgid "Issues you created on this date."
 msgstr "Issues you created on this date."
 
-#: src/components/account-form.tsx:290
+#: src/components/account-form.tsx:295
 msgid "Jira API token"
 msgstr "Jira API token"
 
@@ -107,16 +107,16 @@ msgstr "Jira API token"
 msgid "Jira API token is required"
 msgstr "Jira API token is required"
 
-#: src/lib/queries.ts:124
+#: src/lib/queries.ts:129
 msgid "Jira authentication failed — check your Jira email and API token"
 msgstr "Jira authentication failed — check your Jira email and API token"
 
-#: src/lib/queries.ts:116
-#: src/lib/queries.ts:161
+#: src/lib/queries.ts:121
+#: src/lib/queries.ts:166
 msgid "Jira authentication failed ({loginReason}) — check your Jira email and API token"
 msgstr "Jira authentication failed ({loginReason}) — check your Jira email and API token"
 
-#: src/components/account-form.tsx:276
+#: src/components/account-form.tsx:281
 msgid "Jira email"
 msgstr "Jira email"
 
@@ -126,13 +126,12 @@ msgstr "Jira email is required"
 
 #. placeholder {0}: res.status
 #. placeholder {1}: res.statusText
-#: src/lib/queries.ts:126
-#: src/lib/queries.ts:176
+#: src/lib/queries.ts:131
+#: src/lib/queries.ts:181
 msgid "Jira request failed ({0} {1})"
 msgstr "Jira request failed ({0} {1})"
 
-#: src/components/favorites-form.tsx:113
-#: src/components/project-map-form.tsx:127
+#: src/components/project-map-form.tsx:126
 msgid "Key"
 msgstr "KEY"
 
@@ -144,19 +143,19 @@ msgstr "Language"
 msgid "Limits the portal form's project options to these projects; leave empty to keep all projects"
 msgstr "Limits the portal form's project options to these projects; leave empty to keep all projects"
 
-#: src/components/date-list.tsx:65
+#: src/components/date-list.tsx:64
 msgid "Load more"
 msgstr "Load more"
 
-#: src/components/project-map-form.tsx:87
-msgid "Maps project keys to the portal's projects — an issue's key is its Jira key prefix (ABC-123 → ABC), a favorite's is its own optional key. Selected tasks are grouped by portal project and each group fills its own project + comment pair in the task form, largest group first (max {MAX_DISTINCT_PROJECTS} portal projects — the form has {MAX_DISTINCT_PROJECTS} pairs). Unmapped tasks fall back to the default project's group, or the first comment when no default project is set."
-msgstr "Maps project keys to the portal's projects — an issue's key is its Jira key prefix (ABC-123 → ABC), a favorite's is its own optional key. Selected tasks are grouped by portal project and each group fills its own project + comment pair in the task form, largest group first (max {MAX_DISTINCT_PROJECTS} portal projects — the form has {MAX_DISTINCT_PROJECTS} pairs). Unmapped tasks fall back to the default project's group, or the first comment when no default project is set."
+#: src/components/project-map-form.tsx:86
+msgid "Maps Jira project keys to the portal's projects — an issue's key is its Jira key prefix (ABC-123 → ABC); favorites pick their portal project themselves. Selected tasks are grouped by portal project and each group fills its own project + comment pair in the task form, largest group first (max {MAX_DISTINCT_PROJECTS} portal projects — the form has {MAX_DISTINCT_PROJECTS} pairs). Unmapped tasks fall back to the default project's group, or the first comment when no default project is set."
+msgstr "Maps Jira project keys to the portal's projects — an issue's key is its Jira key prefix (ABC-123 → ABC); favorites pick their portal project themselves. Selected tasks are grouped by portal project and each group fills its own project + comment pair in the task form, largest group first (max {MAX_DISTINCT_PROJECTS} portal projects — the form has {MAX_DISTINCT_PROJECTS} pairs). Unmapped tasks fall back to the default project's group, or the first comment when no default project is set."
 
-#: src/lib/queries.ts:136
+#: src/lib/queries.ts:141
 msgid "No account has been set"
 msgstr "No account has been set"
 
-#: src/components/favorites-form.tsx:97
+#: src/components/favorites-form.tsx:114
 msgid "No favorites yet"
 msgstr "No favorites yet"
 
@@ -164,7 +163,7 @@ msgstr "No favorites yet"
 msgid "No items found."
 msgstr "No items found."
 
-#: src/components/date-list.tsx:47
+#: src/components/date-list.tsx:44
 msgid "No reports to submit"
 msgstr "No reports to submit"
 
@@ -172,7 +171,7 @@ msgstr "No reports to submit"
 msgid "No tasks found"
 msgstr "No tasks found"
 
-#: src/components/task-select.tsx:119
+#: src/components/task-select.tsx:116
 msgid "No tasks found."
 msgstr "No tasks found."
 
@@ -180,11 +179,7 @@ msgstr "No tasks found."
 msgid "No tasks selected"
 msgstr "No tasks selected"
 
-#: src/components/favorites-form.tsx:120
-msgid "Optional project key (a Jira key or any custom one) — a favorite with a key follows the Project mapping preference into that project's form row; without one it goes into the default project's row, or the first row when no default project is set"
-msgstr "Optional project key (a Jira key or any custom one) — a favorite with a key follows the Project mapping preference into that project's form row; without one it goes into the default project's row, or the first row when no default project is set"
-
-#: src/components/account-form.tsx:262
+#: src/components/account-form.tsx:267
 msgid "Phone number"
 msgstr "Phone number"
 
@@ -192,7 +187,7 @@ msgstr "Phone number"
 msgid "Phone number is required"
 msgstr "Phone number is required"
 
-#: src/components/account-form.tsx:248
+#: src/components/account-form.tsx:253
 msgid "Portal credential"
 msgstr "Portal credential"
 
@@ -200,7 +195,7 @@ msgstr "Portal credential"
 msgid "Portal credential is required"
 msgstr "Portal credential is required"
 
-#: src/components/account-form.tsx:234
+#: src/components/account-form.tsx:239
 msgid "Portal URL"
 msgstr "Portal URL"
 
@@ -212,7 +207,7 @@ msgstr "Portal URL is required"
 msgid "Preferences"
 msgstr "Preferences"
 
-#: src/components/project-map-form.tsx:150
+#: src/components/project-map-form.tsx:143
 msgid "Project"
 msgstr "Project"
 
@@ -220,7 +215,7 @@ msgstr "Project"
 msgid "Project list"
 msgstr "Project list"
 
-#: src/components/project-map-form.tsx:77
+#: src/components/project-map-form.tsx:76
 msgid "Project mapping"
 msgstr "Project mapping"
 
@@ -240,15 +235,15 @@ msgstr "Restart failed:"
 msgid "Restarting…"
 msgstr "Restarting…"
 
-#: src/components/account-form.tsx:359
+#: src/components/account-form.tsx:364
 msgid "Save"
 msgstr "Save"
 
-#: src/components/account-form.tsx:346
+#: src/components/account-form.tsx:351
 msgid "Save anyway"
 msgstr "Save anyway"
 
-#: src/components/task-select.tsx:106
+#: src/components/task-select.tsx:103
 msgid "Search tasks"
 msgstr "Search tasks"
 
@@ -275,6 +270,10 @@ msgstr "Switch language"
 #: src/components/default-project-select.tsx:42
 msgid "The portal project that tasks without a Project mapping entry fall back to — and the first dropdown's default when the form is otherwise empty"
 msgstr "The portal project that tasks without a Project mapping entry fall back to — and the first dropdown's default when the form is otherwise empty"
+
+#: src/components/favorites-form.tsx:144
+msgid "The portal project this favorite goes into — it fills that project's form row. A favorite left without a project follows the default project's row, or the first row when no default project is set"
+msgstr "The portal project this favorite goes into — it fills that project's form row. A favorite left without a project follows the default project's row, or the first row when no default project is set"
 
 #: src/components/default-task-groups-select.tsx:48
 msgid "The task groups whose issues start all checked by default"
@@ -313,7 +312,7 @@ msgstr "Update failed: {0}"
 msgid "Use the username:password format"
 msgstr "Use the username:password format"
 
-#: src/components/account-form.tsx:357
+#: src/components/account-form.tsx:362
 msgid "Verifying…"
 msgstr "Verifying…"
 

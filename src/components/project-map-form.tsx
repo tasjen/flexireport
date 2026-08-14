@@ -39,9 +39,8 @@ export default function ProjectMapForm() {
   if (!projects?.length || !preferences) return null;
 
   const projectMap = preferences.project_map;
-  // A project key is either a Jira issue-key prefix (e.g. "ABC-123" → "ABC")
-  // or a favorite's custom key. Normalize to uppercase so lookups can't miss
-  // on casing (favorite keys are normalized the same way).
+  // A project key is a Jira issue-key prefix (e.g. "ABC-123" → "ABC").
+  // Normalize to uppercase so lookups can't miss on casing.
   const trimmedKey = key.trim().toUpperCase();
   // Only `null` means "nothing picked yet" — the portal keeps an empty-valued
   // placeholder option, and picking it is a real selection.
@@ -85,14 +84,14 @@ export default function ProjectMapForm() {
           />
           <TooltipContent>
             <Trans>
-              Maps project keys to the portal's projects — an issue's key is its
-              Jira key prefix (ABC-123 → ABC), a favorite's is its own optional
-              key. Selected tasks are grouped by portal project and each group
-              fills its own project + comment pair in the task form, largest
-              group first (max {MAX_DISTINCT_PROJECTS} portal projects — the
-              form has {MAX_DISTINCT_PROJECTS} pairs). Unmapped tasks fall back
-              to the default project's group, or the first comment when no
-              default project is set.
+              Maps Jira project keys to the portal's projects — an issue's key
+              is its Jira key prefix (ABC-123 → ABC); favorites pick their
+              portal project themselves. Selected tasks are grouped by portal
+              project and each group fills its own project + comment pair in the
+              task form, largest group first (max {MAX_DISTINCT_PROJECTS} portal
+              projects — the form has {MAX_DISTINCT_PROJECTS} pairs). Unmapped
+              tasks fall back to the default project's group, or the first
+              comment when no default project is set.
             </Trans>
           </TooltipContent>
         </Tooltip>

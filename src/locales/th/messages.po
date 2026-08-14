@@ -13,7 +13,7 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
-#: src/components/task-select.tsx:75
+#: src/components/task-select.tsx:96
 msgid "(all selected)"
 msgstr "(เลือกทั้งหมดแล้ว)"
 
@@ -25,7 +25,7 @@ msgstr "{dayCount} วันที่แล้ว"
 msgid "Account"
 msgstr "บัญชี"
 
-#: src/components/favorites-form.tsx:104
+#: src/components/favorites-form.tsx:121
 msgid "Add a favorite task"
 msgstr "เพิ่มงานโปรด"
 
@@ -82,7 +82,7 @@ msgstr "กรอก Email ให้ถูกต้องก่อนนะ"
 msgid "Enter a valid http(s) URL"
 msgstr "กรอก URL แบบ http(s) ให้ถูกต้อง"
 
-#: src/components/favorites-form.tsx:67
+#: src/components/favorites-form.tsx:84
 #: src/lib/task-groups.ts:37
 msgid "Favorites"
 msgstr "รายการโปรด"
@@ -99,7 +99,7 @@ msgstr "งานที่คุณเปลี่ยนสถานะในว
 msgid "Issues you created on this date."
 msgstr "งานที่คุณสร้างในวันที่นี้"
 
-#: src/components/account-form.tsx:290
+#: src/components/account-form.tsx:295
 msgid "Jira API token"
 msgstr "Jira API token"
 
@@ -107,16 +107,16 @@ msgstr "Jira API token"
 msgid "Jira API token is required"
 msgstr "กรอก Jira API token ก่อนนะ"
 
-#: src/lib/queries.ts:124
+#: src/lib/queries.ts:129
 msgid "Jira authentication failed — check your Jira email and API token"
 msgstr "เข้าใช้ Jira ไม่ได้ เช็ก Jira Email กับ API token อีกทีนะ"
 
-#: src/lib/queries.ts:116
-#: src/lib/queries.ts:161
+#: src/lib/queries.ts:121
+#: src/lib/queries.ts:166
 msgid "Jira authentication failed ({loginReason}) — check your Jira email and API token"
 msgstr "เข้าใช้ Jira ไม่ได้ ({loginReason}) เช็ก Jira Email กับ API token อีกทีนะ"
 
-#: src/components/account-form.tsx:276
+#: src/components/account-form.tsx:281
 msgid "Jira email"
 msgstr "Jira Email"
 
@@ -126,13 +126,12 @@ msgstr "กรอก Jira Email ก่อนนะ"
 
 #. placeholder {0}: res.status
 #. placeholder {1}: res.statusText
-#: src/lib/queries.ts:126
-#: src/lib/queries.ts:176
+#: src/lib/queries.ts:131
+#: src/lib/queries.ts:181
 msgid "Jira request failed ({0} {1})"
 msgstr "เรียก Jira ไม่สำเร็จ ({0} {1})"
 
-#: src/components/favorites-form.tsx:113
-#: src/components/project-map-form.tsx:127
+#: src/components/project-map-form.tsx:126
 msgid "Key"
 msgstr "KEY"
 
@@ -144,19 +143,19 @@ msgstr "ภาษา"
 msgid "Limits the portal form's project options to these projects; leave empty to keep all projects"
 msgstr "เลือกให้ฟอร์มแสดงเฉพาะ Project เหล่านี้ เว้นว่างไว้ถ้าต้องการแสดงทั้งหมด"
 
-#: src/components/date-list.tsx:65
+#: src/components/date-list.tsx:64
 msgid "Load more"
 msgstr "ดูเพิ่ม"
 
-#: src/components/project-map-form.tsx:87
-msgid "Maps project keys to the portal's projects — an issue's key is its Jira key prefix (ABC-123 → ABC), a favorite's is its own optional key. Selected tasks are grouped by portal project and each group fills its own project + comment pair in the task form, largest group first (max {MAX_DISTINCT_PROJECTS} portal projects — the form has {MAX_DISTINCT_PROJECTS} pairs). Unmapped tasks fall back to the default project's group, or the first comment when no default project is set."
-msgstr "จับคู่ Project key กับ Project ในฟอร์ม โดย task Jira จะใช้ตัวอักษรหน้า issue key (ABC-123 → ABC) ส่วนรายการโปรดจะใช้ key ที่ใส่ไว้ ระบบจะแยกงานที่เลือกตาม Project ในฟอร์มแล้วเติม Project + สรุปงานในฟอร์ม เรียงกลุ่มที่มีงานเยอะสุดก่อน (สูงสุด {MAX_DISTINCT_PROJECTS} Project เพราะฟอร์มมี {MAX_DISTINCT_PROJECTS} แถว) งานที่ยังไม่ได้จับคู่จะไปรวมกับ Project เริ่มต้น หรือรวมในสรุปงานของ Project แรกถ้ายังไม่ได้ตั้ง Project เริ่มต้น"
+#: src/components/project-map-form.tsx:86
+msgid "Maps Jira project keys to the portal's projects — an issue's key is its Jira key prefix (ABC-123 → ABC); favorites pick their portal project themselves. Selected tasks are grouped by portal project and each group fills its own project + comment pair in the task form, largest group first (max {MAX_DISTINCT_PROJECTS} portal projects — the form has {MAX_DISTINCT_PROJECTS} pairs). Unmapped tasks fall back to the default project's group, or the first comment when no default project is set."
+msgstr "จับคู่ Project key ของ Jira กับ Project ในฟอร์ม โดยใช้ตัวอักษรหน้า issue key (ABC-123 → ABC) ส่วนรายการโปรดจะเลือก Project เองได้เลย ระบบจะแยกงานที่เลือกตาม Project ในฟอร์มแล้วเติม Project + สรุปงานในฟอร์ม เรียงกลุ่มที่มีงานเยอะสุดก่อน (สูงสุด {MAX_DISTINCT_PROJECTS} Project เพราะฟอร์มมี {MAX_DISTINCT_PROJECTS} แถว) งานที่ยังไม่ได้จับคู่จะไปรวมกับ Project เริ่มต้น หรือรวมในสรุปงานของ Project แรกถ้ายังไม่ได้ตั้ง Project เริ่มต้น"
 
-#: src/lib/queries.ts:136
+#: src/lib/queries.ts:141
 msgid "No account has been set"
 msgstr "ยังไม่ได้ตั้งค่า Account"
 
-#: src/components/favorites-form.tsx:97
+#: src/components/favorites-form.tsx:114
 msgid "No favorites yet"
 msgstr "ยังไม่มีรายการโปรด"
 
@@ -164,7 +163,7 @@ msgstr "ยังไม่มีรายการโปรด"
 msgid "No items found."
 msgstr "ไม่พบรายการ"
 
-#: src/components/date-list.tsx:47
+#: src/components/date-list.tsx:44
 msgid "No reports to submit"
 msgstr "ไม่มีรายงานที่ต้องส่ง"
 
@@ -172,7 +171,7 @@ msgstr "ไม่มีรายงานที่ต้องส่ง"
 msgid "No tasks found"
 msgstr "ไม่พบงาน"
 
-#: src/components/task-select.tsx:119
+#: src/components/task-select.tsx:116
 msgid "No tasks found."
 msgstr "ไม่พบงาน"
 
@@ -180,11 +179,7 @@ msgstr "ไม่พบงาน"
 msgid "No tasks selected"
 msgstr "ยังไม่ได้เลือกงาน"
 
-#: src/components/favorites-form.tsx:120
-msgid "Optional project key (a Jira key or any custom one) — a favorite with a key follows the Project mapping preference into that project's form row; without one it goes into the default project's row, or the first row when no default project is set"
-msgstr "ใส่ Project key ได้ถ้าต้องการ จะใช้ Jira key หรือคำที่ตั้งเองก็ได้ รายการโปรดที่มี key จะไปอยู่ในแถวของ Project ตามการจับคู่ ส่วนรายการที่ไม่มี key จะอยู่ในแถว Project เริ่มต้น หรือแถวแรกถ้ายังไม่ได้ตั้ง Project เริ่มต้น"
-
-#: src/components/account-form.tsx:262
+#: src/components/account-form.tsx:267
 msgid "Phone number"
 msgstr "เบอร์โทรศัพท์"
 
@@ -192,7 +187,7 @@ msgstr "เบอร์โทรศัพท์"
 msgid "Phone number is required"
 msgstr "กรอกเบอร์โทรก่อนนะ"
 
-#: src/components/account-form.tsx:248
+#: src/components/account-form.tsx:253
 msgid "Portal credential"
 msgstr "username/password ของเว็บลง task"
 
@@ -200,7 +195,7 @@ msgstr "username/password ของเว็บลง task"
 msgid "Portal credential is required"
 msgstr "กรอก username/password ของเว็บลง task ก่อนนะ"
 
-#: src/components/account-form.tsx:234
+#: src/components/account-form.tsx:239
 msgid "Portal URL"
 msgstr "URL เว็บลง task"
 
@@ -212,7 +207,7 @@ msgstr "กรอก URL เว็บลง task ก่อนนะ"
 msgid "Preferences"
 msgstr "การตั้งค่า"
 
-#: src/components/project-map-form.tsx:150
+#: src/components/project-map-form.tsx:143
 msgid "Project"
 msgstr "Project"
 
@@ -220,7 +215,7 @@ msgstr "Project"
 msgid "Project list"
 msgstr "รายการ Project"
 
-#: src/components/project-map-form.tsx:77
+#: src/components/project-map-form.tsx:76
 msgid "Project mapping"
 msgstr "จับคู่ Project"
 
@@ -240,15 +235,15 @@ msgstr "เปิดแอปใหม่ไม่สำเร็จ:"
 msgid "Restarting…"
 msgstr "กำลังเปิดแอปใหม่…"
 
-#: src/components/account-form.tsx:359
+#: src/components/account-form.tsx:364
 msgid "Save"
 msgstr "บันทึก"
 
-#: src/components/account-form.tsx:346
+#: src/components/account-form.tsx:351
 msgid "Save anyway"
 msgstr "ข้ามการตรวจสอบแล้วบันทึก"
 
-#: src/components/task-select.tsx:106
+#: src/components/task-select.tsx:103
 msgid "Search tasks"
 msgstr "ค้นหางาน"
 
@@ -275,6 +270,10 @@ msgstr "เปลี่ยนภาษา"
 #: src/components/default-project-select.tsx:42
 msgid "The portal project that tasks without a Project mapping entry fall back to — and the first dropdown's default when the form is otherwise empty"
 msgstr "Project ใน Portal ที่จะใช้กับงานที่ยังไม่ได้จับคู่ และเป็นค่าเริ่มต้นของช่องแรกเมื่อฟอร์มยังว่าง"
+
+#: src/components/favorites-form.tsx:144
+msgid "The portal project this favorite goes into — it fills that project's form row. A favorite left without a project follows the default project's row, or the first row when no default project is set"
+msgstr "Project ในฟอร์มที่รายการโปรดนี้จะไปอยู่ โดยจะไปเติมในแถวของ Project นั้น ส่วนรายการที่ไม่ได้ระบุ Project จะอยู่ในแถว Project เริ่มต้น หรือแถวแรกถ้ายังไม่ได้ตั้ง Project เริ่มต้น"
 
 #: src/components/default-task-groups-select.tsx:48
 msgid "The task groups whose issues start all checked by default"
@@ -313,7 +312,7 @@ msgstr "อัปเดตไม่สำเร็จ: {0}"
 msgid "Use the username:password format"
 msgstr "ใช้รูปแบบ username:password"
 
-#: src/components/account-form.tsx:357
+#: src/components/account-form.tsx:362
 msgid "Verifying…"
 msgstr "กำลังเช็ก…"
 

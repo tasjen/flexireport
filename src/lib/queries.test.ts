@@ -80,13 +80,21 @@ describe("favoritesOptions", () => {
     await expect(readFavorites()).resolves.toEqual([]);
   });
 
-  it("normalizes legacy string favorites and passes objects through", async () => {
+  it("normalizes legacy strings and drops the superseded project_key tag", async () => {
+    // A store written across all three shapes: a bare string, a favorite
+    // tagged with the old project key (which routed through project_map), and
+    // one carrying its own portal project.
     mockTauri({
-      favorites: ["Standup", { text: "Deploy", project_key: "OPS" }],
+      favorites: [
+        "Standup",
+        { text: "Deploy", project_key: "OPS" },
+        { text: "Review", project: "200" },
+      ],
     });
     await expect(readFavorites()).resolves.toEqual([
-      { text: "Standup", project_key: null },
-      { text: "Deploy", project_key: "OPS" },
+      { text: "Standup", project: null },
+      { text: "Deploy", project: null },
+      { text: "Review", project: "200" },
     ]);
   });
 });

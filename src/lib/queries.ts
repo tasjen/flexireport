@@ -46,16 +46,21 @@ export function usePreferences() {
 export function favoritesOptions() {
   return queryOptions({
     // stores saved before the key existed return undefined, hence ?? [];
-    // favorites saved before project keys existed are plain strings —
-    // normalize so consumers always see the object shape (the store itself
-    // upgrades on the next save).
+    // older favorites are plain strings, and the ones written while favorites
+    // were tagged with a project key carry `project_key` instead of a portal
+    // project. Both normalize to a project-less favorite, so a stale key can
+    // never route a submission to a project the user never picked here; the
+    // store upgrades on the next save.
     queryKey: ["favorites"],
     queryFn: async (): Promise<Favorite[]> =>
-      ((await store.get<(string | Favorite)[]>("favorites")) ?? []).map(
-        (favorite) =>
-          typeof favorite === "string"
-            ? { text: favorite, project_key: null }
-            : favorite,
+      (
+        (await store.get<
+          (string | { text: string; project?: string | null })[]
+        >("favorites")) ?? []
+      ).map((favorite) =>
+        typeof favorite === "string"
+          ? { text: favorite, project: null }
+          : { text: favorite.text, project: favorite.project ?? null },
       ),
   });
 }

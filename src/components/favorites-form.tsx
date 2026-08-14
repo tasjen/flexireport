@@ -13,42 +13,59 @@ import {
 } from "@/components/shared/dialog";
 import { Input } from "@/components/shared/input";
 import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/shared/select";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/shared/tooltip";
 import { useSaveFavoritesMutation } from "@/lib/mutations";
-import { useFavorites } from "@/lib/queries";
+import { useFavorites, useTaskParameters } from "@/lib/queries";
 
 export default function FavoritesForm() {
   const { t } = useLingui();
   const { data: favorites } = useFavorites();
   const saveFavorites = useSaveFavoritesMutation();
+  const { data: taskParameters } = useTaskParameters();
   const [text, setText] = useState("");
-  const [projectKey, setProjectKey] = useState("");
+  // `null` is "untouched", not "no project": the select shows the first portal
+  // project until the user picks another, the same default DefaultProjectSelect
+  // uses. It only stays null when the portal list is empty.
+  const [project, setProject] = useState<string | null>(null);
   const [listRef] = useAutoAnimate();
 
   // The trimmed text is the favorite's identity, so adding is disabled for
   // an empty result or an exact duplicate of an existing favorite. The
-  // project key is optional and not part of the identity — it can be a real
-  // Jira project key or any custom label, as long as it matches a Project
-  // mapping entry. Normalized to uppercase like the project_map keys so the
-  // date card's lookup can't miss on casing.
+  // project is optional and not part of the identity.
   const trimmed = text.trim();
-  const trimmedKey = projectKey.trim().toUpperCase();
   const canAdd = Boolean(
     trimmed && favorites && !favorites.some((f) => f.text === trimmed),
   );
+  // Empty until the headless scrape has run (no account yet, or it failed):
+  // favorites stay addable without a project rather than blocking on it.
+  const projects = taskParameters?.projects ?? [];
+  const firstProject = projects[0];
+  const selectedProject = project ?? firstProject?.value ?? null;
 
-  function handleAdd(e: React.FormEvent<HTMLFormElement>) {
+  function projectLabel(value: string) {
+    return projects.find((p) => p.value === value)?.label ?? value;
+  }
+
+  function handleAdd(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!canAdd || !favorites) return;
     saveFavorites.mutate([
       ...favorites,
-      { text: trimmed, project_key: trimmedKey || null },
+      { text: trimmed, project: selectedProject },
     ]);
     setText("");
-    setProjectKey("");
+    setProject(null);
   }
 
   return (
@@ -71,21 +88,21 @@ export default function FavoritesForm() {
           <ul ref={listRef} className="flex flex-col gap-1">
             {favorites.map((favorite) => (
               <li key={favorite.text} className="flex items-center gap-2">
-                {favorite.project_key && (
-                  <span className="flex-none rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
-                    {favorite.project_key}
+                <span className="flex-1 break-all">{favorite.text}</span>
+                {favorite.project && (
+                  <span className="max-w-40 flex-none truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                    {projectLabel(favorite.project)}
                   </span>
                 )}
-                <span className="flex-1 break-all">{favorite.text}</span>
                 <Button
                   size="icon"
                   variant="ghost"
                   data-testid="favorite-delete"
-                  onClick={() =>
+                  onClick={() => {
                     saveFavorites.mutate(
                       favorites.filter((f) => f.text !== favorite.text),
-                    )
-                  }
+                    );
+                  }}
                 >
                   <Trash2Icon />
                 </Button>
@@ -97,34 +114,56 @@ export default function FavoritesForm() {
             <Trans>No favorites yet</Trans>
           </p>
         )}
-        <form onSubmit={handleAdd} className="flex gap-2">
+        <form onSubmit={handleAdd} className="flex items-center gap-2">
           <Input
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder={t`Add a favorite task`}
             data-testid="favorite-text"
           />
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Input
-                  value={projectKey}
-                  onChange={(e) => setProjectKey(e.target.value)}
-                  placeholder={t`Key`}
-                  className="w-30 flex-none font-mono"
-                  data-testid="favorite-key"
+          {projects.length > 0 && (
+            <Select
+              items={projects}
+              value={selectedProject}
+              onValueChange={(val: string | null) => {
+                setProject(val ?? firstProject?.value ?? null);
+              }}
+            >
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <SelectTrigger
+                      className="w-40 flex-none"
+                      data-testid="favorite-project"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                  }
                 />
-              }
-            />
-            <TooltipContent>
-              <Trans>
-                Optional project key (a Jira key or any custom one) — a favorite
-                with a key follows the Project mapping preference into that
-                project's form row; without one it goes into the default
-                project's row, or the first row when no default project is set
-              </Trans>
-            </TooltipContent>
-          </Tooltip>
+                <TooltipContent className="max-w-sm">
+                  <Trans>
+                    The portal project this favorite goes into — it fills that
+                    project's form row. A favorite left without a project
+                    follows the default project's row, or the first row when no
+                    default project is set
+                  </Trans>
+                </TooltipContent>
+              </Tooltip>
+              <SelectContent className="w-2xs">
+                <SelectGroup>
+                  {projects.map((item) => (
+                    <SelectItem
+                      key={item.value}
+                      value={item.value}
+                      data-testid={`favorite-project-option-${item.value}`}
+                    >
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          )}
           <Button type="submit" disabled={!canAdd} data-testid="favorite-add">
             <PlusIcon />
           </Button>

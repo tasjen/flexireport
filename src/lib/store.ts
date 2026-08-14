@@ -16,21 +16,22 @@ export type Account = {
 
 // A free-form favorite task. Frontend-only: the Rust side never reads this
 // key. The text itself is the identity — the favorites dialog rejects
-// duplicates, so no generated ids. `project_key` optionally tags the favorite
-// with a project key (a real Jira one or any custom label) so the date card
-// buckets it through `project_map` like a real issue; null routes it like an
-// unmapped task (the default project's bucket when set, else the first form
-// row). Favorites saved before the field existed are plain strings
-// — `favoritesOptions` normalizes them to this shape at read time.
-export type Favorite = { text: string; project_key: string | null };
+// duplicates, so no generated ids. `project` is a portal project option id
+// picked straight from the favorites dialog's select, so a favorite names its
+// portal project directly instead of routing through `project_map` the way a
+// Jira issue key does; null routes it like an unmapped task (the default
+// project's bucket when set, else the first form row). Older stores hold
+// plain strings, or objects carrying the superseded `project_key` tag —
+// `favoritesOptions` normalizes both to this shape at read time.
+export type Favorite = { text: string; project: string | null };
 
 export type TaskGroupType = "status" | "created" | "sprint" | "favorite";
 
 export type Preferences = {
   default_project: string | null;
   project_list: string[];
-  // Project key → portal project option id. A project key is a Jira
-  // issue-key prefix (e.g. "ABC") or a favorite's custom `project_key` tag.
+  // Jira issue-key prefix (e.g. "ABC") → portal project option id. Favorites
+  // are not routed through here — they carry their own portal project.
   // Selected tasks are bucketed by mapped portal project and each bucket
   // fills its own project-select/textarea row pair in the task form, largest
   // bucket first. The form has 3 row pairs, so the editor caps this at 3
