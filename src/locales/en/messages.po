@@ -34,8 +34,8 @@ msgid "Add project"
 msgstr "Add project"
 
 #: src/lib/task-groups.ts:32
-msgid "Assigned to you not done"
-msgstr "Assigned to you not done"
+msgid "Assigned to you in progress"
+msgstr "Assigned to you in progress"
 
 #: src/components/auto-close-toggle.tsx:34
 msgid "Auto-close browser"
@@ -88,8 +88,8 @@ msgid "Favorites"
 msgstr "Favorites"
 
 #: src/lib/task-groups.ts:33
-msgid "Issues assigned to you in an open sprint that aren't done yet, created on or before this date."
-msgstr "Issues assigned to you in an open sprint that aren't done yet, created on or before this date."
+msgid "Issues assigned to you in an open sprint that are in progress, created on or before this date."
+msgstr "Issues assigned to you in an open sprint that are in progress, created on or before this date."
 
 #: src/lib/task-groups.ts:23
 msgid "Issues whose status you changed on this date."

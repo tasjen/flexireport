@@ -493,7 +493,7 @@ describe("buildJqlForDate", () => {
       created:
         'creator = currentUser() AND created >= "2026-07-20" AND created < "2026-07-21"',
       sprint:
-        'assignee = currentUser() AND created < "2026-07-21" AND sprint in openSprints() AND statusCategory != Done',
+        'assignee = currentUser() AND created < "2026-07-21" AND sprint in openSprints() AND statusCategory = "In Progress"',
     });
   });
 });
