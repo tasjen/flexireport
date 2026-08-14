@@ -29,8 +29,8 @@ export const TASK_GROUPS: {
   },
   {
     type: "sprint",
-    label: msg`Assigned to you not done`,
-    description: msg`Issues assigned to you in an open sprint that aren't done yet, created on or before this date.`,
+    label: msg`Assigned to you in progress`,
+    description: msg`Issues assigned to you in an open sprint that are in progress, created on or before this date.`,
   },
   {
     type: "favorite",

@@ -32,7 +32,7 @@ export function buildJqlForDate(date: string): JqlByGroup {
   return {
     status: `status CHANGED BY currentUser() DURING ("${date}", "${dateAfter}")`,
     created: `creator = currentUser() AND created >= "${date}" AND created < "${dateAfter}"`,
-    sprint: `assignee = currentUser() AND created < "${dateAfter}" AND sprint in openSprints() AND statusCategory != Done`,
+    sprint: `assignee = currentUser() AND created < "${dateAfter}" AND sprint in openSprints() AND statusCategory = "In Progress"`,
   };
 }
 

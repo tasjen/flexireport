@@ -249,7 +249,7 @@ favorites:   { text, project }[]
 
 - status: `status CHANGED BY currentUser() DURING ("<date>", "<date+1>")`
 - created: `creator = currentUser() AND created >= "<date>" AND created < "<date+1>"`
-- sprint: `assignee = currentUser() AND created < "<date+1>" AND sprint in openSprints() AND statusCategory != Done`
+- sprint: `assignee = currentUser() AND created < "<date+1>" AND sprint in openSprints() AND statusCategory = "In Progress"`
 
 Jira Cloud can return 200 with zero issues for bad credentials due to anonymous fallback. Detect authentication failure through the `x-seraph-loginreason` header.
 

@@ -34,8 +34,8 @@ msgid "Add project"
 msgstr "เพิ่ม Project"
 
 #: src/lib/task-groups.ts:32
-msgid "Assigned to you not done"
-msgstr "งานของคุณที่ยังไม่เสร็จ"
+msgid "Assigned to you in progress"
+msgstr "งานของคุณที่กำลังทำอยู่"
 
 #: src/components/auto-close-toggle.tsx:34
 msgid "Auto-close browser"
@@ -88,8 +88,8 @@ msgid "Favorites"
 msgstr "รายการโปรด"
 
 #: src/lib/task-groups.ts:33
-msgid "Issues assigned to you in an open sprint that aren't done yet, created on or before this date."
-msgstr "งานที่มอบหมายให้คุณใน sprint ที่เปิดอยู่และยังไม่เสร็จ ซึ่งถูกสร้างในวันที่นี้หรือก่อนหน้า"
+msgid "Issues assigned to you in an open sprint that are in progress, created on or before this date."
+msgstr "งานที่มอบหมายให้คุณใน sprint ที่เปิดอยู่และกำลังทำอยู่ ซึ่งถูกสร้างในวันที่นี้หรือก่อนหน้า"
 
 #: src/lib/task-groups.ts:23
 msgid "Issues whose status you changed on this date."
