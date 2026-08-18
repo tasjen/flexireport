@@ -25,10 +25,6 @@ msgstr "{dayCount} days ago"
 msgid "Account"
 msgstr "Account"
 
-#: src/components/favorites-form.tsx:121
-msgid "Add a favorite task"
-msgstr "Add a favorite task"
-
 #: src/components/project-list-select.tsx:83
 msgid "Add project"
 msgstr "Add project"
@@ -266,6 +262,10 @@ msgstr "Submits the task form automatically after filling the summary"
 #: src/components/locale-toggle.tsx:27
 msgid "Switch language"
 msgstr "Switch language"
+
+#: src/components/favorites-form.tsx:121
+msgid "Task details"
+msgstr "Task details"
 
 #: src/components/default-project-select.tsx:42
 msgid "The portal project that tasks without a Project mapping entry fall back to — and the first dropdown's default when the form is otherwise empty"

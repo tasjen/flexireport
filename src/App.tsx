@@ -1,6 +1,4 @@
 import "@/App.css";
-import { Suspense } from "react";
-
 import AccountForm from "@/components/account-form";
 import DateList from "@/components/date-list";
 import FavoritesForm from "@/components/favorites-form";
@@ -41,9 +39,7 @@ export default function App() {
         </p>
         {accountQuery.data && <DateList />}
       </main>
-      <Suspense>
-        <Version className="absolute top-2.5 right-3" />
-      </Suspense>
+      <Version className="absolute top-2.5 right-3" />
     </div>
   );
 }

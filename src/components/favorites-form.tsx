@@ -118,7 +118,7 @@ export default function FavoritesForm() {
           <Input
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder={t`Add a favorite task`}
+            placeholder={t`Task details`}
             data-testid="favorite-text"
           />
           {projects.length > 0 && (

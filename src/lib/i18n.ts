@@ -3,7 +3,7 @@ import { i18n } from "@lingui/core";
 export const LOCALES = { en: "EN", th: "ไทย" } as const;
 export type Locale = keyof typeof LOCALES;
 
-const DEFAULT_LOCALE: Locale = "en";
+const DEFAULT_LOCALE: Locale = "th";
 const STORAGE_KEY = "vite-ui-locale";
 
 export function getStoredLocale(): Locale {
