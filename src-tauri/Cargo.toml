@@ -33,6 +33,9 @@ tauri-plugin-process = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-log = "2"
 log = "0.4"
+sysinfo = { version = "0.39.6", default-features = false, features = [
+  "system",
+] }
 
 [features]
 # Compiles the live-portal smoke test (src/live_portal.rs). Off by default so

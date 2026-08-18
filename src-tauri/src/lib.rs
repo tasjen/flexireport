@@ -4,6 +4,7 @@ mod browser_session;
 #[cfg(test)]
 mod command_registry;
 mod error;
+mod leftover_browsers;
 mod lifecycle;
 #[cfg(all(test, feature = "live-portal-smoke"))]
 mod live_portal;
@@ -26,6 +27,7 @@ use chromiumoxide::cdp::browser_protocol::fetch::{
 use chromiumoxide::Page;
 pub(crate) use error::AppError;
 use futures::StreamExt;
+use leftover_browsers::ProcessTable;
 use login::{login_script, LoginPortal, PortalLogin, VerifyHost, VerifySession};
 use navigation::{wait_for_navigation, UrlExpectation};
 use project_options::ProjectOptionsCache;
@@ -81,6 +83,56 @@ fn browser_label(with_head: bool) -> &'static str {
 /// The throwaway `verify_portal_login` profile, kept apart from the persistent
 /// instances so a check never contends with them.
 const VERIFY_PROFILE: &str = "verify";
+
+/// Every Chromium profile dir this app owns.
+///
+/// The set is fixed and bounded to three, which is what lets each launch wipe
+/// its own dir — and what lets [`leftover_browsers::reap`] use the dirs as the
+/// identity of a browser this app leaked.
+fn profile_dirs(cache_dir: &std::path::Path) -> [std::path::PathBuf; 3] {
+    [
+        profile_dir(cache_dir, browser_label(false)),
+        profile_dir(cache_dir, browser_label(true)),
+        profile_dir(cache_dir, VERIFY_PROFILE),
+    ]
+}
+
+/// The real `ProcessTable`: this machine's processes, read once through
+/// `sysinfo`. Holds no policy — what counts as a leftover, and what happens to
+/// it, lives in `leftover_browsers`.
+///
+/// Read in-process rather than by shelling out to `ps`/`wmic`, which would
+/// flash a console window on Windows.
+struct SystemProcesses(sysinfo::System);
+
+impl SystemProcesses {
+    /// Snapshots the process table. Only command lines are refreshed; the
+    /// default `everything()` would also read CPU, memory and disk usage for
+    /// every process on the machine.
+    fn scan() -> Self {
+        Self(sysinfo::System::new_with_specifics(
+            sysinfo::RefreshKind::nothing().with_processes(
+                sysinfo::ProcessRefreshKind::nothing().with_cmd(sysinfo::UpdateKind::Always),
+            ),
+        ))
+    }
+}
+
+impl ProcessTable for SystemProcesses {
+    fn command_lines(&self) -> Vec<(u32, Vec<std::ffi::OsString>)> {
+        self.0
+            .processes()
+            .iter()
+            .map(|(pid, process)| (pid.as_u32(), process.cmd().to_vec()))
+            .collect()
+    }
+
+    fn kill(&self, pid: u32) -> bool {
+        self.0
+            .process(sysinfo::Pid::from_u32(pid))
+            .is_some_and(sysinfo::Process::kill)
+    }
+}
 
 /// The real Chromium boundary behind `BrowserSession`: launches a browser from
 /// this instance's own profile dir, logs it into the portal, and terminates it.
@@ -805,6 +857,30 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // Kill browsers a previous run leaked, before launching any of our
+            // own. Nothing else can: `tauri dev` SIGKILLs the app on every
+            // Rust hot reload, so neither `RunEvent::Exit` nor chromiumoxide's
+            // `kill_on_drop` ever runs and the orphaned Chromium outlives the
+            // process that owned it.
+            //
+            // Two things make this position load-bearing. It runs before the
+            // first launch, and the reap matches on profile dirs, so a browser
+            // this run has already started would match too. And it runs after
+            // plugin setup — Tauri initializes plugins in `build()` and calls
+            // this closure later, so `tauri-plugin-single-instance` has
+            // already exited a duplicate process by now, and the reap can
+            // never take out a live sibling instance's browsers.
+            let reaped = leftover_browsers::reap(
+                &SystemProcesses::scan(),
+                &profile_dirs(&app.path().app_cache_dir()?),
+            );
+            if !reaped.is_empty() {
+                log::warn!(
+                    "killed {} leftover browser process(es) from an earlier run: {reaped:?}",
+                    reaped.len()
+                );
+            }
+
             app.manage(HeadlessBrowserState(browser_state(app.handle(), false)));
             app.manage(HeadedBrowserState(browser_state(app.handle(), true)));
             app.manage(VerifyBrowserState(VerifySession::new(ChromiumVerifyHost {
@@ -839,14 +915,31 @@ pub fn run() {
 mod tests {
     use std::path::Path;
 
-    use super::{browser_label, profile_dir, VERIFY_PROFILE};
+    use super::{browser_label, profile_dirs, ProcessTable, SystemProcesses, VERIFY_PROFILE};
+
+    #[test]
+    fn the_process_table_reports_arguments_on_this_platform() {
+        // The whole reap rests on `sysinfo` handing back argument vectors: a
+        // leftover browser is recognised by the profile dir in its arguments,
+        // and a table that reported only process names would silently match
+        // nothing and leak every time. Fakes cannot prove this, so ask the
+        // real boundary about the one process it can always read — this one.
+        let table = SystemProcesses::scan();
+
+        let (pid, argv) = table
+            .command_lines()
+            .into_iter()
+            .find(|(pid, _)| *pid == std::process::id())
+            .expect("the current process should be in the process table");
+
+        assert!(!argv.is_empty(), "no arguments for pid {pid}");
+    }
 
     #[test]
     fn each_browser_instance_gets_its_own_profile_directory() {
         let cache = Path::new("/tmp/app-cache");
 
-        let dirs = [browser_label(false), browser_label(true), VERIFY_PROFILE]
-            .map(|name| profile_dir(cache, name));
+        let dirs = profile_dirs(cache);
 
         // Bounded to three fixed paths, which is what lets each launch wipe
         // its own dir instead of tracking temporary ones for cleanup.
