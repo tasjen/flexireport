@@ -25,10 +25,6 @@ msgstr "{dayCount} วันที่แล้ว"
 msgid "Account"
 msgstr "บัญชี"
 
-#: src/components/favorites-form.tsx:121
-msgid "Add a favorite task"
-msgstr "เพิ่มงานโปรด"
-
 #: src/components/project-list-select.tsx:83
 msgid "Add project"
 msgstr "เพิ่ม Project"
@@ -266,6 +262,10 @@ msgstr "ส่งฟอร์มงานให้อัตโนมัติห
 #: src/components/locale-toggle.tsx:27
 msgid "Switch language"
 msgstr "เปลี่ยนภาษา"
+
+#: src/components/favorites-form.tsx:121
+msgid "Task details"
+msgstr "รายละเอียดงาน"
 
 #: src/components/default-project-select.tsx:42
 msgid "The portal project that tasks without a Project mapping entry fall back to — and the first dropdown's default when the form is otherwise empty"
