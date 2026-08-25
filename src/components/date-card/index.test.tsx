@@ -165,7 +165,7 @@ it("explains each group in a tooltip, with the JQL it actually ran", async () =>
   await userEvent.hover(await card().findByTestId("task-group-status-info"));
   expect(
     await screen.findByText(
-      `status CHANGED BY currentUser() DURING ("${DATE}", "2026-07-21")`,
+      `status CHANGED BY currentUser() DURING ("${DATE} 00:00", "${DATE} 23:59")`,
     ),
   ).toBeInTheDocument();
   await userEvent.unhover(card().getByTestId("task-group-status-info"));
