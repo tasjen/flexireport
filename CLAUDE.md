@@ -258,11 +258,13 @@ favorites:   { text, project }[]
 
 [src/lib/queries.ts](src/lib/queries.ts) `jiraTasksQueryOptions` POSTs to `https://living-insider.atlassian.net/rest/api/3/search/jql` using `@tauri-apps/plugin-http` `fetch`, not browser `fetch`; this bypasses CORS and uses the capability-allowlisted host. Authentication is Basic `base64(email:api_token)`.
 
-`useDateCardTasks` runs three JQL queries per date, built by `buildJqlForDate` in [src/lib/date-card-helpers.ts](src/lib/date-card-helpers.ts) and bounded by `<date>` inclusive and `<date+1>` exclusive. Edit them there, not at the query call sites — the same strings are what the group tooltips display:
+`useDateCardTasks` runs three JQL queries per date, built by `buildJqlForDate` in [src/lib/date-card-helpers.ts](src/lib/date-card-helpers.ts), each covering exactly `<date>`. Edit them there, not at the query call sites — the same strings are what the group tooltips display:
 
-- status: `status CHANGED BY currentUser() DURING ("<date>", "<date+1>")`
+- status: `status CHANGED BY currentUser() DURING ("<date> 00:00", "<date> 23:59")`
 - created: `creator = currentUser() AND created >= "<date>" AND created < "<date+1>"`
 - sprint: `assignee = currentUser() AND created < "<date+1>" AND sprint in openSprints() AND statusCategory = "In Progress"`
+
+**`status` spells its window out to the minute; the other two bound the day half-open with `<date+1>` exclusive.** `DURING` is inclusive at *both* ends, and a bare date on the right is inclusive of that whole day, so `DURING ("<date>", "<date+1>")` spans 48 hours and every card repeats the next day's transitions — measured against the real instance, the previous day's result set was exactly the union of both days. Do not "simplify" it back to bare dates.
 
 Jira Cloud can return 200 with zero issues for bad credentials due to anonymous fallback. Detect authentication failure through the `x-seraph-loginreason` header.
 

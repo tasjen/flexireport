@@ -486,10 +486,13 @@ describe("defaultCheckedKeysOf", () => {
 describe("buildJqlForDate", () => {
   // Asserted verbatim: these strings are both what Jira runs and what the
   // group tooltips display, so a silent edit to either is a behavior change.
+  // The status window is spelled out to the minute on purpose: JQL DURING is
+  // inclusive at both ends, so handing it the next day would cover 48 hours
+  // and make consecutive cards show each other's transitions.
   it("bounds every query by the date inclusive and the next day exclusive", () => {
     expect(buildJqlForDate("2026-07-20")).toEqual({
       status:
-        'status CHANGED BY currentUser() DURING ("2026-07-20", "2026-07-21")',
+        'status CHANGED BY currentUser() DURING ("2026-07-20 00:00", "2026-07-20 23:59")',
       created:
         'creator = currentUser() AND created >= "2026-07-20" AND created < "2026-07-21"',
       sprint:

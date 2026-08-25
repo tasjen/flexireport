@@ -23,14 +23,20 @@ export const FAVORITE_KEY_PREFIX = "favorite:";
 // TaskGroupType with no query behind them.
 export type JqlByGroup = Record<Exclude<TaskGroupType, "favorite">, string>;
 
-// The three Jira queries a date card runs, bounded by <date> inclusive and
-// <date+1> exclusive. One source for both the strings handed to
-// useJiraTasksQuery and the strings shown in each group's tooltip, so what the
-// user is told can't drift from what was asked of Jira.
+// The three Jira queries a date card runs, each covering exactly <date>. One
+// source for both the strings handed to useJiraTasksQuery and the strings
+// shown in each group's tooltip, so what the user is told can't drift from
+// what was asked of Jira.
+//
+// `created` and `sprint` bound the day half-open with <date+1> exclusive.
+// `status` cannot: DURING is inclusive at *both* ends, and a bare date on the
+// right is inclusive of that whole day, so DURING (<date>, <date+1>) spans 48
+// hours and every card repeats the next day's transitions. Spell the times out
+// rather than lean on how Jira rounds a bare date.
 export function buildJqlForDate(date: string): JqlByGroup {
   const dateAfter = getDateAfter(date);
   return {
-    status: `status CHANGED BY currentUser() DURING ("${date}", "${dateAfter}")`,
+    status: `status CHANGED BY currentUser() DURING ("${date} 00:00", "${date} 23:59")`,
     created: `creator = currentUser() AND created >= "${date}" AND created < "${dateAfter}"`,
     sprint: `assignee = currentUser() AND created < "${dateAfter}" AND sprint in openSprints() AND statusCategory = "In Progress"`,
   };
