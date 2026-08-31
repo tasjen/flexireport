@@ -12,8 +12,17 @@
 //! behind runs forever — one more tree per hot reload.
 //!
 //! Wiping the profile dir on launch does not help: Chromium holds its profile
-//! open and simply recreates what it needs. Only the *successor* process can
-//! clean up, which is why this runs at startup rather than at exit.
+//! open and simply recreates what it needs, and on Windows the process
+//! singleton's marker is a hidden message window in the leftover's own memory
+//! rather than a `SingletonLock` file on disk. Only the *successor* process
+//! can clean up, which is why this runs at startup rather than at exit.
+//!
+//! Startup is not the only moment it is needed. Sessions are given up and
+//! relaunched throughout a run, and a leftover holding a profile dir does not
+//! merely waste memory — it *captures* the next launch into that dir, because
+//! Chromium hands the new process's command line to the running instance and
+//! exits 0 without printing the websocket URL. So `lib.rs` reaps a single
+//! profile dir immediately before every launch as well.
 //!
 //! Each instance's profile dir is fixed and unique to this app, and Chromium
 //! carries it in `--user-data-dir=…` on the browser process *and* every helper

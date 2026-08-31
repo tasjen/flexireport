@@ -397,18 +397,63 @@ impl BrowserHost for ChromiumHost {
     }
 }
 
-/// Launches a fresh Chromium instance from a clean profile at `user_data_dir`.
-/// `label` is used for log lines only. Shared by `BrowserState::launch_and_login`
-/// and `verify_portal_login`.
-async fn launch_browser(
+/// Kills every process still running out of `user_data_dir`. `label` names the
+/// instance for the log line only.
+///
+/// This is a precondition of launching, not tidy-up. Chromium's process
+/// singleton means a live browser already using this profile *takes over* the
+/// launch: the new process hands its command line to that instance and exits
+/// 0 having printed nothing, so chromiumoxide fails with "Browser process
+/// exited with status ExitStatus(0) before websocket URL could be resolved"
+/// and an empty stderr. The reap in `setup` cannot cover it — that runs once,
+/// while sessions are given up and relaunched throughout a run.
+///
+/// Wiping the dir is not a substitute. On Windows the singleton marker is a
+/// hidden message window named after the profile path, living in the leftover
+/// process's memory rather than in a `SingletonLock` file, so deleting the
+/// directory leaves the handoff fully armed — and while that process holds the
+/// profile open, Windows fails the delete outright. Killing the owner is what
+/// works on both platforms, and it is what lets the wipe succeed at all.
+///
+/// Reaping immediately before a launch cannot take out a browser this run
+/// still wants: each profile dir belongs to exactly one session, and every
+/// caller reaches here holding that session's lock with its state already
+/// emptied.
+fn reap_profile(user_data_dir: &std::path::Path, label: &str) {
+    let reaped = leftover_browsers::reap(&SystemProcesses::scan(), &[user_data_dir]);
+    if !reaped.is_empty() {
+        log::warn!(
+            "killed {} leftover process(es) holding the {label} profile: {reaped:?}",
+            reaped.len()
+        );
+    }
+}
+
+/// Whether a launch failed by *quietly succeeding at exiting* — the signature
+/// of a singleton handoff to a browser the reap's snapshot missed. Chromium
+/// exits 0 before it logs anything; a crash, a rejected flag or a profile it
+/// cannot open all carry a non-zero status instead.
+fn is_singleton_handoff(error: &AppError) -> bool {
+    match error {
+        AppError::Cdp(e) => matches!(
+            &**e,
+            chromiumoxide::error::CdpError::LaunchExit(status, _) if status.success()
+        ),
+        _ => false,
+    }
+}
+
+/// Reaps the profile, wipes it, and launches one Chromium instance from it.
+/// Separate from [`launch_browser`] so a handoff can be retried by repeating
+/// the whole sequence — the retry's value is in reaping again, not in
+/// launching again.
+async fn spawn_browser(
     user_data_dir: &std::path::Path,
     with_head: bool,
     label: &str,
-) -> Result<(Browser, ChromiumPage), AppError> {
-    // Start each launch from a clean profile in our own cache dir. Wiping
-    // also clears any stale `SingletonLock` a previous unclean shutdown left
-    // behind, so a leftover Chromium can't make this launch hand off and exit.
-    log::info!("launching {label} browser");
+) -> Result<Browser, AppError> {
+    reap_profile(user_data_dir, label);
+    // Start each launch from a clean profile in our own cache dir.
     let _ = std::fs::remove_dir_all(user_data_dir);
     std::fs::create_dir_all(user_data_dir)?;
     let mut config = BrowserConfig::builder()
@@ -420,6 +465,30 @@ async fn launch_browser(
     }
     let (browser, mut handler) = Browser::launch(config.build()?).await?;
     tokio::spawn(async move { while handler.next().await.is_some() {} });
+    Ok(browser)
+}
+
+/// Launches a fresh Chromium instance from a clean profile at `user_data_dir`.
+/// `label` is used for log lines only. Shared by `BrowserState::launch_and_login`
+/// and `verify_portal_login`.
+async fn launch_browser(
+    user_data_dir: &std::path::Path,
+    with_head: bool,
+    label: &str,
+) -> Result<(Browser, ChromiumPage), AppError> {
+    log::info!("launching {label} browser");
+    let browser = match spawn_browser(user_data_dir, with_head, label).await {
+        Err(error) if is_singleton_handoff(&error) => {
+            // A leftover that started, or became visible, after the reap's
+            // snapshot answered the handoff — so it is certainly alive and
+            // holding the profile now, and `spawn_browser`'s own reap clears
+            // it. Retry exactly once: a second handoff is not a race, and a
+            // silent exit we cannot explain must reach the user.
+            log::warn!("{label} browser exited without a websocket URL; reaping and retrying once");
+            spawn_browser(user_data_dir, with_head, label).await?
+        }
+        other => other?,
+    };
     let page = ChromiumPage::new(browser.new_page("about:blank").await?);
     Ok((browser, page))
 }
@@ -862,6 +931,9 @@ pub fn run() {
             // Rust hot reload, so neither `RunEvent::Exit` nor chromiumoxide's
             // `kill_on_drop` ever runs and the orphaned Chromium outlives the
             // process that owned it.
+            //
+            // Each launch reaps its own dir too (see `reap_profile`); this
+            // sweep is the one that covers all three before anything runs.
             //
             // Two things make this position load-bearing. It runs before the
             // first launch, and the reap matches on profile dirs, so a browser
