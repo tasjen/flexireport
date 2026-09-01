@@ -1,7 +1,7 @@
 import DateCardHeader from "@/components/date-card/header";
 import DateCardSummary from "@/components/date-card/summary";
 import TaskSelectGrid from "@/components/date-card/task-select-grid";
-import { Card, CardContent } from "@/components/shared/card";
+import { Card, CardContent, CardFooter } from "@/components/shared/card";
 import { Separator } from "@/components/shared/separator";
 import { buildSubmission, WORK_HOURS_PER_DAY } from "@/lib/date-card-helpers";
 import { useSubmitTaskMutation } from "@/lib/mutations";
@@ -93,12 +93,6 @@ export default function DateCard({ date }: Props) {
       />
       <Separator />
       <CardContent className="space-y-4">
-        <TaskSelectGrid
-          groups={issueGroups}
-          jqlByGroup={jqlByGroup}
-          selectedKeySet={selectedKeySet}
-          onSelectionChange={handleSelectionChange}
-        />
         <DateCardSummary
           isFetching={isFetching}
           error={error}
@@ -106,6 +100,14 @@ export default function DateCard({ date }: Props) {
           hasIssues={allIssues.length > 0}
         />
       </CardContent>
+      <CardFooter>
+        <TaskSelectGrid
+          groups={issueGroups}
+          jqlByGroup={jqlByGroup}
+          selectedKeySet={selectedKeySet}
+          onSelectionChange={handleSelectionChange}
+        />
+      </CardFooter>
     </Card>
   );
 }

@@ -58,7 +58,7 @@ export default function DateCardSummary({
   }
 
   return (
-    <p className="relative mt-4 whitespace-pre-wrap">
+    <p className="relative whitespace-pre-wrap">
       {summaryText}
       <Button
         variant="ghost"

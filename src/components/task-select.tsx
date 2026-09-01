@@ -104,14 +104,7 @@ export default function TaskSelect({
           data-testid={testId && `${testId}-input`}
         />
       </div>
-      <ComboboxContent
-        anchor={anchor}
-        className="w-xl"
-        side="top"
-        positionerProps={{
-          collisionPadding: { bottom: 0 },
-        }}
-      >
+      <ComboboxContent anchor={anchor} className="w-xl" side="bottom">
         <ComboboxEmpty>
           <Trans>No tasks found.</Trans>
         </ComboboxEmpty>
