@@ -1,9 +1,18 @@
 import { i18n } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
+import { ExternalLinkIcon } from "lucide-react";
 import { useEffect } from "react";
 import { toast } from "sonner";
+
+import { toastError } from "./utils";
+
+// The release the updater found is published under its own tag, so its notes
+// are the change log for exactly the version being offered.
+const releaseNotesUrl = (version: string) =>
+  `https://github.com/tasjen/flexireport/releases/tag/v${version}`;
 
 export function useUpdateCheck() {
   useEffect(() => {
@@ -19,6 +28,18 @@ export function useUpdateCheck() {
         toast.info(i18n._(msg`Update available: v${version}`), {
           duration: Number.POSITIVE_INFINITY,
           closeButton: true,
+          description: (
+            <button
+              type="button"
+              className="inline-flex cursor-pointer items-center gap-1 font-semibold hover:underline"
+              onClick={() => {
+                openUrl(releaseNotesUrl(version)).catch(toastError);
+              }}
+            >
+              {i18n._(msg`View change log`)}
+              <ExternalLinkIcon className="size-3" />
+            </button>
+          ),
           action: {
             label: i18n._(msg`Update & restart`),
             onClick: () => {

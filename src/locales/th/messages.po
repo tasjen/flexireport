@@ -66,7 +66,7 @@ msgstr "Project เริ่มต้น"
 msgid "Default selected task groups"
 msgstr "กลุ่มงานที่เลือกไว้โดยอัตโนมัติ"
 
-#: src/lib/use-update-check.ts:28
+#: src/lib/use-update-check.tsx:49
 msgid "Downloading update…"
 msgstr "กำลังดาวน์โหลดอัปเดต…"
 
@@ -167,7 +167,7 @@ msgstr "ไม่มีรายงานที่ต้องส่ง"
 msgid "No tasks found"
 msgstr "ไม่พบงาน"
 
-#: src/components/task-select.tsx:116
+#: src/components/task-select.tsx:109
 msgid "No tasks found."
 msgstr "ไม่พบงาน"
 
@@ -227,7 +227,7 @@ msgstr "เปิดแอปใหม่"
 msgid "Restart failed:"
 msgstr "เปิดแอปใหม่ไม่สำเร็จ:"
 
-#: src/lib/use-update-check.ts:29
+#: src/lib/use-update-check.tsx:50
 msgid "Restarting…"
 msgstr "กำลังเปิดแอปใหม่…"
 
@@ -295,16 +295,16 @@ msgstr "สลับธีม"
 msgid "Try again"
 msgstr "ลองอีกครั้ง"
 
-#: src/lib/use-update-check.ts:23
+#: src/lib/use-update-check.tsx:44
 msgid "Update & restart"
 msgstr "อัปเดตแล้วเปิดแอปใหม่"
 
-#: src/lib/use-update-check.ts:19
+#: src/lib/use-update-check.tsx:28
 msgid "Update available: v{version}"
 msgstr "มีอัปเดตใหม่: v{version}"
 
 #. placeholder {0}: String(error)
-#: src/lib/use-update-check.ts:30
+#: src/lib/use-update-check.tsx:51
 msgid "Update failed: {0}"
 msgstr "อัปเดตไม่สำเร็จ: {0}"
 
@@ -315,6 +315,10 @@ msgstr "ใช้รูปแบบ username:password"
 #: src/components/account-form.tsx:362
 msgid "Verifying…"
 msgstr "กำลังเช็ก…"
+
+#: src/lib/use-update-check.tsx:39
+msgid "View change log"
+msgstr "ดูบันทึกการเปลี่ยนแปลง"
 
 #: src/components/date-card/header.tsx:32
 msgid "Yesterday"
