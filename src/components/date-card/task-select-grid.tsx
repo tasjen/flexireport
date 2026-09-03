@@ -16,6 +16,8 @@ const TWO_COLUMN_THRESHOLD = 3;
 type Props = {
   groups: IssueGroup[];
   jqlByGroup: JqlByGroup;
+  // Favorite text -> the portal project it names, shown beside the option.
+  favoriteProjectLabels: ReadonlyMap<string, string>;
   selectedKeySet: Set<string>;
   onSelectionChange: (groupKeys: string[], selected: string[]) => void;
 };
@@ -23,6 +25,7 @@ type Props = {
 export default function TaskSelectGrid({
   groups,
   jqlByGroup,
+  favoriteProjectLabels,
   selectedKeySet,
   onSelectionChange,
 }: Props) {
@@ -47,7 +50,7 @@ export default function TaskSelectGrid({
             label={i18n._(group.label)}
             description={i18n._(group.description)}
             jql={jqlFor(jqlByGroup, group.id)}
-            items={toOptionItems(group)}
+            items={toOptionItems(group, favoriteProjectLabels)}
             plainLabels={group.id === "favorite"}
             value={keys.filter((key) => selectedKeySet.has(key))}
             onValueChange={(selected) => onSelectionChange(keys, selected)}

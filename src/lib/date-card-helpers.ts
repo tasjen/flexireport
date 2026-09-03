@@ -4,7 +4,7 @@ import { create } from "mutative";
 import type { SubmitTaskEntry } from "@/lib/mutations";
 import type { Favorite, TaskGroupType } from "@/lib/store";
 import { TASK_GROUPS } from "@/lib/task-groups";
-import type { JiraIssue } from "@/type";
+import type { JiraIssue, SelectOption } from "@/type";
 
 export type IssueGroup = {
   id: TaskGroupType;
@@ -68,15 +68,40 @@ export function favoritesAsIssues(favorites: Favorite[]): JiraIssue[] {
   }));
 }
 
-// Favorites show their text alone, in the order they were added; Jira issues
-// show "KEY: summary" sorted by key.
+// One row of a TaskSelect. Only a favorite carries a `hint`: it names its
+// portal project directly, while Jira issues route through `project_map`.
+export type TaskOptionItem = SelectOption & { hint?: string };
+
+// Favorite text -> the label of the portal project it names. Unresolvable ids
+// are left out: an option id means nothing on its own, so a favorite pointing
+// at a dropped project, or read before the scrape has run, shows its text
+// alone. A blank project ("", the portal's placeholder) means none.
+export function favoriteProjectLabels(
+  favorites: Favorite[],
+  projects: SelectOption[],
+): Map<string, string> {
+  const labelByValue = new Map(projects.map((p) => [p.value, p.label]));
+  return new Map(
+    favorites.flatMap((favorite) => {
+      const label = favorite.project && labelByValue.get(favorite.project);
+      return label ? [[favorite.text, label] as const] : [];
+    }),
+  );
+}
+
+// Favorites show their text alone, in the order they were added, hinted with
+// the portal project they name; Jira issues show "KEY: summary" sorted by key.
 export function toOptionItems(
   group: Pick<IssueGroup, "id" | "issues">,
-): { value: string; label: string }[] {
+  projectLabelByFavorite?: ReadonlyMap<string, string>,
+): TaskOptionItem[] {
   if (group.id === "favorite") {
+    // favoritesAsIssues puts the favorite's text in `summary`, so the hint is
+    // keyed off the same string the label comes from.
     return group.issues.map((issue) => ({
       value: issue.key,
       label: issue.fields.summary,
+      hint: projectLabelByFavorite?.get(issue.fields.summary),
     }));
   }
   return group.issues

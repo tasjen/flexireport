@@ -25,6 +25,7 @@ export default function DateCard({ date }: Props) {
     allIssues,
     createdKeys,
     favorites,
+    favoriteProjectLabels,
     error,
     isFetching,
     refetchAll,
@@ -104,6 +105,7 @@ export default function DateCard({ date }: Props) {
         <TaskSelectGrid
           groups={issueGroups}
           jqlByGroup={jqlByGroup}
+          favoriteProjectLabels={favoriteProjectLabels}
           selectedKeySet={selectedKeySet}
           onSelectionChange={handleSelectionChange}
         />

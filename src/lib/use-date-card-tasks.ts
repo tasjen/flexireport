@@ -1,11 +1,16 @@
 import {
   buildIssueGroups,
   buildJqlForDate,
+  favoriteProjectLabels,
   favoritesAsIssues,
   type IssueGroup,
   type JqlByGroup,
 } from "@/lib/date-card-helpers";
-import { useFavorites, useJiraTasksQuery } from "@/lib/queries";
+import {
+  useFavorites,
+  useJiraTasksQuery,
+  useTaskParameters,
+} from "@/lib/queries";
 import type { Favorite, TaskGroupType } from "@/lib/store";
 import type { JiraIssue } from "@/type";
 
@@ -20,6 +25,10 @@ export type DateCardTasks = {
   // an earlier group is not relabeled.
   createdKeys: Set<string>;
   favorites: Favorite[];
+  // Favorite text -> portal project label, for the favorites group's option
+  // hints. Empty until the headless scrape has run, so a favorite shows its
+  // text alone rather than a raw option id.
+  favoriteProjectLabels: Map<string, string>;
   // First error across the three queries; one failing query fails the card.
   error: Error | null;
   isFetching: boolean;
@@ -50,6 +59,7 @@ export function useDateCardTasks(
   const sprintQuery = useJiraTasksQuery(jqlByGroup.sprint, queryOptions);
 
   const { data: favorites } = useFavorites();
+  const { data: taskParameters } = useTaskParameters();
 
   const issueGroups = buildIssueGroups(
     {
@@ -71,6 +81,10 @@ export function useDateCardTasks(
         ?.issues.map((issue) => issue.key) ?? [],
     ),
     favorites: favorites ?? [],
+    favoriteProjectLabels: favoriteProjectLabels(
+      favorites ?? [],
+      taskParameters?.projects ?? [],
+    ),
     error: statusQuery.error ?? createdQuery.error ?? sprintQuery.error,
     isFetching:
       statusQuery.isFetching ||

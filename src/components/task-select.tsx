@@ -16,10 +16,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/shared/tooltip";
-import type { SelectOption } from "@/type";
+import type { TaskOptionItem } from "@/lib/date-card-helpers";
 
 type Props = {
-  items: SelectOption[];
+  items: TaskOptionItem[];
   value: string[];
   onValueChange: (keys: string[]) => void;
   label?: string;
@@ -109,11 +109,22 @@ export default function TaskSelect({
           <Trans>No tasks found.</Trans>
         </ComboboxEmpty>
         <ComboboxList className="scrollbar-thin scrollbar-thumb-muted-foreground space-y-1">
-          {(option: SelectOption) => {
+          {(option: TaskOptionItem) => {
             if (plainLabels) {
               return (
-                <ComboboxItem key={option.value} value={option.value}>
-                  <span>{option.label}</span>
+                <ComboboxItem
+                  key={option.value}
+                  value={option.value}
+                  className="flex items-start gap-2"
+                >
+                  <span className="flex-1">{option.label}</span>
+                  {option.hint && (
+                    // Same badge the favorites dialog puts beside a favorite,
+                    // so the project reads the same in both places.
+                    <span className="max-w-40 flex-none truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                      {option.hint}
+                    </span>
+                  )}
                 </ComboboxItem>
               );
             }

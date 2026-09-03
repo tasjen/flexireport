@@ -12,6 +12,7 @@ import {
   getDateAfter,
   getDateRelation,
   jqlFor,
+  favoriteProjectLabels,
   toOptionItems,
 } from "@/lib/date-card-helpers";
 import type { JiraIssue } from "@/type";
@@ -568,5 +569,60 @@ describe("toOptionItems", () => {
       { value: `${FAVORITE_KEY_PREFIX}Standup`, label: "Standup" },
       { value: `${FAVORITE_KEY_PREFIX}Code review`, label: "Code review" },
     ]);
+  });
+
+  it("hints a favorite with its linked project, and leaves the rest bare", () => {
+    expect(
+      toOptionItems(
+        {
+          id: "favorite",
+          issues: favoritesAsIssues([
+            { text: "Standup", project: "10" },
+            { text: "Code review", project: null },
+          ]),
+        },
+        new Map([["Standup", "Website"]]),
+      ),
+    ).toEqual([
+      {
+        value: `${FAVORITE_KEY_PREFIX}Standup`,
+        label: "Standup",
+        hint: "Website",
+      },
+      {
+        value: `${FAVORITE_KEY_PREFIX}Code review`,
+        label: "Code review",
+        hint: undefined,
+      },
+    ]);
+  });
+});
+
+describe("favoriteProjectLabels", () => {
+  const PROJECTS = [
+    { value: "10", label: "Website" },
+    { value: "20", label: "Mobile" },
+  ];
+
+  it("maps favorite text to its project's label", () => {
+    expect(
+      favoriteProjectLabels([{ text: "Standup", project: "10" }], PROJECTS),
+    ).toEqual(new Map([["Standup", "Website"]]));
+  });
+
+  it("leaves out favorites with no resolvable project", () => {
+    expect(
+      favoriteProjectLabels(
+        [
+          { text: "Standup", project: null },
+          // the portal's blank placeholder option means "no project"
+          { text: "Code review", project: "" },
+          // a project the portal no longer offers — showing its raw id would
+          // tell the user nothing
+          { text: "Deploy", project: "99" },
+        ],
+        PROJECTS,
+      ),
+    ).toEqual(new Map());
   });
 });
